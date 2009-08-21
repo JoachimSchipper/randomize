@@ -22,6 +22,9 @@
  * printing data on the console on receipt of SIGINFO.
  */
 
+#include <sys/types.h>
+#include <sys/uio.h>
+
 #include <assert.h>
 #include <err.h>
 #include <errno.h>
@@ -40,9 +43,15 @@
 static sig_atomic_t got_siginfo = 0;
 void handle_siginfo(int sig);
 #endif
+/* 
+ * Handle escape sequences; e.g. "\\\n" becomes "\
+ * ". Returns the size of the resulting data (which is guaranteed to be
+ * NULL-terminated, but may *contain* NULLs...)
+ */
+int unescape(char *str);
 int main(int argc, char **argv);
 
-const char *usage = "randomize [-0hz]\n\t-0\t\tAccept null-terminated input (see xargs(1))\n\t-h\t\tShow this help\n\t-z\t\tProduce null-terminated output (again, see xargs(1))";
+const char *usage = "randomize [-h] [-i input_delim [-i input_delim ...]] [-o output_delim] [file [file ...]]";
 
 #ifndef HAVE_ARC4RANDOM
 /*
@@ -78,29 +87,118 @@ handle_siginfo(int sig)
 #endif
 
 int
+unescape(char *str)
+{
+	char		*p, *pw, ch;
+	const struct {
+		char	 ch, stands_for;
+	} escape_sequences[] = {
+		{ '0',	'\0' },
+		{ 'a',	'\a' },
+		{ 'b',	'\b' },
+		{ 'f',	'\f' },
+		{ 'n',	'\n' },
+		{ 'r',	'\r' },
+		{ 't',	'\t' },
+		{ 'v',	'\v' },
+		{ '\\',	'\\' },
+		{ '?', 	'\?' }
+	};
+	int		 i, len;
+
+	p = pw = str;
+	len = 0;
+	for (p = pw = str, len = 0; *p != NULL; len++) {
+		/*
+		 * Parse input, looking ahead if we see a backslash. We produce
+		 * one output character per loop through the cycle.
+		 */
+		if (*p != '\\') {
+			*pw++ = *p++;
+		} else if (strspn(p + 1, "01234567") >= 3 || (p[1] == 'x' && strspn(p + 2, "01234567890ABCDEF") >= 2)) {
+			/* Octal or hex specification */
+			ch = p[4];
+			p[4] = '\0';
+			if (p[1] == 'x')
+				*pw++ = strtoul(p + 1, NULL, 8);
+			else
+				*pw++ = strtoul(p + 2, NULL, 16);
+			*(p += 4) = ch;
+		} else {
+			for (i = 0; i < sizeof(escape_sequences) / sizeof(*escape_sequences); i++) {
+				/* \n or something similar */
+				if (p[1] == escape_sequences[i].ch) {
+					*pw++ = escape_sequences[i].stands_for;
+					p += 2;
+
+					continue;
+				}
+			}
+
+			/* Some unidentified escape sequence, e.g. \l. */
+			if (p[1] == '\0')
+				*pw++ = *p++;
+			else {
+				*pw++ = p[1];
+				p += 2;
+			}
+		}
+	}
+
+	*pw = '\0';
+
+	return len;
+}
+
+int
 main(int argc, char **argv)
 {
-	int		 ch, null_terminated_input, null_terminated_output, fd;
-	char		*buf, *p;
+	char		*buf;
+	struct {
+		const char
+			*chars;
+		int	 size;
+	}		*input_delimiter, output_delimiter;
+	int		 ch, fd;
 	uint32_t	 nlines, i, r;
-	ssize_t		 bytes_read, bytes_written, len;
-	size_t		 buf_size, j, oldj, *line, total_bytes_written;
+	ssize_t		 bytes_read, bytes_written;
+	struct {
+		size_t	 start, len;
+	}		*line;
+	size_t		 buf_size, j, oldj, total_bytes_written, input_delimiters_size, k;
 	void		*tmp;
+	struct iovec	 iov[2];
 #ifdef HAVE_SIGINFO
 	struct sigaction act;
 #endif
 
-	null_terminated_input = null_terminated_output = 0;
-	while ((ch = getopt(argc, argv, "0hz")) != -1) {
+	/* "Unitialized" */
+	input_delimiter = NULL;
+	input_delimiters_size = 0;
+	output_delimiter.chars = (const char []){'\n'};
+	output_delimiter.size = 1;
+
+	while ((ch = getopt(argc, argv, "hi:o:")) != -1) {
 		switch (ch) {
-		case '0':
-			null_terminated_input = 1;
-			break;
 		case 'h':
 			errx(0, usage);
 			/* NOTREACHED */
-		case 'z':
-			null_terminated_output = 1;
+		case 'i':
+			if (input_delimiters_size + 1 > SIZE_MAX / sizeof(*input_delimiter)) {
+				errno = ENOMEM;
+				errx(1, "Too many input delimiters - something went horribly wrong!");
+			}
+			if ((tmp = realloc(input_delimiter, ++input_delimiters_size * sizeof(*input_delimiter))) == NULL)
+				err(1, "Failed to allocate more input delimiters");
+			input_delimiter = tmp;
+			buf = strdup(optarg);
+			input_delimiter[input_delimiters_size - 1].size = unescape(buf);
+			input_delimiter[input_delimiters_size - 1].chars = buf;
+			break;
+		case 'o':
+			buf = strdup(optarg);
+			output_delimiter.size = unescape(buf);
+			output_delimiter.chars = buf;
 			break;
 		default:
 			errx(127, usage);
@@ -110,11 +208,22 @@ main(int argc, char **argv)
 	argc -= optind;
 	argv += optind;
 
+	/* Use defaults (\0, \n) if not initalized */
+	if (input_delimiter == NULL) {
+		if ((input_delimiter = malloc((input_delimiters_size = 2) * sizeof(*input_delimiter))) == NULL)
+			err(1, "Failed to allocate default input delimiters");
+		input_delimiter[0].chars = (const char []){'\0'};
+		input_delimiter[1].chars = (const char []){'\n'};
+		input_delimiter[0].size = input_delimiter[1].size = 1;
+	}
+
 	if (argv[0] == NULL) {
 		if ((argv = malloc(2 * sizeof(*argv))) == NULL)
 			err(1, "Failed to allocate synthetic argument vector");
 
-		argv[0] = "-";
+		/* XXX This is ugly. */
+		/* strdup() is not necessary, but does keep gcc happy */
+		argv[0] = strdup("-");
 		argv[1] = NULL;
 	}
 
@@ -141,8 +250,7 @@ main(int argc, char **argv)
 	 * newline-terminate them.
 	 */
 	oldj = j = 0;
-	i = 0;
-	line[i++] = 0;
+	line[i = 0].start = 0;
 	for ( ; *argv != NULL; argv++) {
 		if (strcmp(*argv, "-") == 0)
 			fd = 0;
@@ -178,47 +286,49 @@ main(int argc, char **argv)
 			}
 
 			for ( ; oldj < j; oldj++) {
-				if ((!null_terminated_input && buf[oldj] == '\n') || buf[oldj] == '\0') {
-					buf[oldj] = '\0';
+				for (k = 0; k < input_delimiters_size; k++) {
+					if (j - oldj >= input_delimiter[k].size && memcmp(&buf[oldj], input_delimiter[k].chars, input_delimiter[k].size) == 0) {
+						if (i == nlines - 1) {
+							if ((tmp = realloc(line, nlines <= SIZE_MAX / sizeof(*line) / 2 ? nlines * 2 * sizeof(*line) : SIZE_MAX / sizeof(*line) * sizeof(*line))) == NULL)
+								err(1, "Failed to enlarge line buffer");
 
-					if (i == nlines - 1) {
-						if ((tmp = realloc(line, nlines <= SIZE_MAX / sizeof(*line) / 2 ? nlines * 2 * sizeof(*line) : SIZE_MAX / sizeof(*line) * sizeof(*line))) == NULL)
-							err(1, "Failed to enlarge line buffer");
+							line = tmp;
+							nlines = nlines <= SIZE_MAX / sizeof(*line) / 2 ? nlines * 2 : SIZE_MAX / sizeof(*line);
+						}
 
-						line = tmp;
-						nlines = nlines <= SIZE_MAX / sizeof(*line) / 2 ? nlines * 2 : SIZE_MAX / sizeof(*line);
+						line[i].len = oldj - line[i].start;
+
+						/* May point past bufp, but we'll fix that below */
+						oldj += input_delimiter[k].size - 1;
+						line[++i].start = oldj + 1;
+
+						break;
 					}
-
-					/* May point past bufp, but we'll fix that below */
-					line[i++] = oldj + 1;
 				}
 			}
 		}
-
-		/* Terminate */
-		buf[j] = '\n';
 
 		while (close(fd) != 0 && errno != EINTR);
 	}
 
 	/* Set nlines to actual number of lines used */
-	if (line[i - 1] >= j)
-		nlines = i - 1;
-	else
+	line[i].len = j - line[i].start;
+	if (line[i].start >= j)
 		nlines = i;
+	else
+		nlines = i + 1;
 
 	/* Print in random order */
 	total_bytes_written = 0;
 	for (i = nlines; i > 0; i--) {
 		r = RANDOM(i);
-		p = &buf[line[r]];
-		len = strlen(p);
-		if (!null_terminated_output)
-			/* Change terminating \0 to \n for printing */
-			p[len] = '\n';
-		len++;
+		iov[0].iov_base = &buf[line[r].start];
+		iov[0].iov_len = line[r].len;
+		iov[1].iov_base = output_delimiter.chars;
+		iov[1].iov_len = output_delimiter.size;
 
-		while ((bytes_written = write(1, p, len)) != 0) {
+		/* Debug */
+		while ((bytes_written = writev(1, iov, sizeof(iov) / sizeof(*iov))) != 0) {
 #ifdef HAVE_SIGINFO
 			if (got_siginfo) {
 				fprintf(stderr, "Written %zu/%zu bytes, %" PRIu32 "/%" PRIu32 " lines\n", total_bytes_written, j, nlines - i, nlines);
@@ -235,8 +345,17 @@ main(int argc, char **argv)
 
 			total_bytes_written += bytes_written;
 
-			p += bytes_written;
-			len -= bytes_written;
+			if (bytes_written == iov[0].iov_len + iov[1].iov_len)
+				break;
+			else if (bytes_written > iov[0].iov_len) {
+				iov[0].iov_len = 0;
+				bytes_written -= iov[0].iov_len;
+				iov[1].iov_base = ((char *) iov[1].iov_base) + bytes_written;
+				iov[1].iov_len -= bytes_written;
+			} else {
+				iov[0].iov_base = ((char *) iov[0].iov_base) + bytes_written;
+				iov[0].iov_len -= bytes_written;
+			}
 		}
 
 		line[r] = line[i - 1];

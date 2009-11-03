@@ -77,7 +77,7 @@ ssize_t write_delimited(int d, void *buf, size_t nbytes, const struct delim outp
 static inline int delimiter_cmp_size(const void *d1, const void *d2) __attribute__((nonnull(1, 2), pure));
 int main(int argc, char **argv);
 
-const char *usage = "randomize [-o str] [-i str [-i str ...]] [file [file ...]]\nrandomize [-o str] (-a | -e) [str [str ...]]\n";
+const char *usage = "randomize [-o str] [-i str [-i str ...]] [file ...]\nrandomize [-o str] (-a | -e) [arg ...]\n";
 
 #ifndef HAVE_ARC4RANDOM
 /*
@@ -264,10 +264,10 @@ main(int argc, char **argv)
 	char		*buf, newline[] = "\n";
 	struct delim 	*input_delimiter, output_delimiter;
 	enum {
-		ARG_READ,
-		ARG_RANDOMIZE,
-		ARG_UNESCAPE_RANDOMIZE
-	}		 handle_arguments;
+		MODE_READ,
+		MODE_RANDOMIZE,
+		MODE_UNESCAPE_RANDOMIZE
+	}		 mode;
 	int		 ch, fd;
 	uint32_t	 nlines, new_nlines, i;
 	ssize_t		 bytes_read;
@@ -302,25 +302,24 @@ main(int argc, char **argv)
 	/* XXX Abstract input/output */
 	/* XXX Add -n option */
 	/* XXX Audit/clean source code */
-	/* XXX Lint */
-	handle_arguments = ARG_READ;
-	while ((ch = getopt(argc, argv, "aehi:o:")) != -1) {
+	mode = MODE_READ;
+	while ((ch = getopt(argc, argv, "aei:o:")) != -1) {
 		switch (ch) {
 		case 'a':
-			if (handle_arguments != ARG_READ) {
+			if (mode != MODE_READ) {
 				fprintf(stderr, "%s", usage);
 				exit(127);
 			}
 
-			handle_arguments = ARG_RANDOMIZE;
+			mode = MODE_RANDOMIZE;
 			break;
 		case 'e':
-			if (handle_arguments != ARG_READ) {
+			if (mode != MODE_READ) {
 				fprintf(stderr, "%s", usage);
 				exit(127);
 			}
 
-			handle_arguments = ARG_UNESCAPE_RANDOMIZE;
+			mode = MODE_UNESCAPE_RANDOMIZE;
 			break;
 		case 'i':
 			if (input_delimiters_size + 1 > SIZE_MAX / sizeof(*input_delimiter))
@@ -338,7 +337,11 @@ main(int argc, char **argv)
 			/* LINTED idem */
 			input_delimiter[input_delimiters_size - 1].chars = buf;
 
-			handle_arguments = ARG_READ;
+			/* LINTED idem */
+			if (input_delimiter[input_delimiters_size - 1].size == 0)
+				errx(127, "Zero-length input delimiters are not meaningful");
+
+			mode = MODE_READ;
 			break;
 		case 'o':
 			buf = strdup(optarg);
@@ -355,31 +358,34 @@ main(int argc, char **argv)
 	argc -= optind;
 	argv += optind;
 
-	if (handle_arguments != ARG_READ) {
+	if (mode == MODE_RANDOMIZE || mode == MODE_UNESCAPE_RANDOMIZE) {
 		/*
-		 * Randomize arguments instead of files
+		 * Randomize arguments instead of files.
+		 *
+		 * This is a *lot* simpler, since the records are already in
+		 * memory and easily accessible via argv[].
 		 */
 		/* LINTED argc is nonnegative, so conversion works */
 		for (j = 0; j < argc; j++) {
 			/* LINTED as above */
 			r = RANDOM(argc - j <= UINT32_MAX ? argc - j : UINT32_MAX) + j;
 
-			if (handle_arguments == ARG_UNESCAPE_RANDOMIZE) {
+			if (mode == MODE_UNESCAPE_RANDOMIZE) {
 				/*
-				 * Evaluate escape sequences
+				 * Just print string
 				 */
 				/* LINTED r can be converted to signed */
 				assert(r < argc);
 				/* LINTED idem */
-				k = unescape(argv[r]);
+				k = strlen(argv[r]);
 			} else {
 				/*
-				 * Just print string
+				 * Evaluate escape sequences
 				 */
 				/* LINTED idem */
 				assert(r < argc);
 				/* LINTED idem */
-				k = strlen(argv[r]);
+				k = unescape(argv[r]);
 			}
 
 			/* LINTED as above */
@@ -403,9 +409,9 @@ main(int argc, char **argv)
 	/*
 	 * Randomize the contents of the files named on the command line
 	 */
-	assert(handle_arguments == ARG_READ);
+	assert(mode == MODE_READ);
 
-	/* Use defaults (\0 or \n) if not initalized */
+	/* Use defaults if not initalized */
 	if (input_delimiter == NULL) {
 		if ((input_delimiter = malloc((input_delimiters_size = 1) * sizeof(*input_delimiter))) == NULL)
 			err(1, "Failed to allocate default input delimiters");
@@ -413,10 +419,6 @@ main(int argc, char **argv)
 		input_delimiter[0].size = 1;
 	}
 
-	/* Sort by length (longest first) */
-	qsort(input_delimiter, input_delimiters_size, sizeof(*input_delimiter), delimiter_cmp_size);
-
-	/* Use default (stdin) if not initialized */
 	if (argv[0] == NULL) {
 		if ((argv = malloc(2 * sizeof(*argv))) == NULL)
 			err(1, "Failed to allocate synthetic argument vector");
@@ -425,6 +427,9 @@ main(int argc, char **argv)
 		argv[0] = strdup("-");
 		argv[1] = NULL;
 	}
+
+	/* Sort by length (longest first) */
+	qsort(input_delimiter, input_delimiters_size, sizeof(*input_delimiter), delimiter_cmp_size);
 
 	/*
 	 * Read all data into buf. Find lines, add them to line[], and
@@ -438,13 +443,15 @@ main(int argc, char **argv)
 	oldj = j = 0;
 	line[i = 0].start = 0;
 	for ( ; *argv != NULL; argv++) {
-		if (strcmp(*argv, "-") == 0)
+		if (strcmp(*argv, "-") == 0) {
+			/* stdin */
 			fd = 0;
-		else {
+		} else {
 			if ((fd = open(*argv, O_RDONLY, 0000)) == -1)
 				err(1, "Failed to read file %s", *argv);
 		}
 
+		/* Slurp the file into memory and parse records */
 		/* LINTED j is an index into buf, so this works */
 		while ((bytes_read = read(fd, buf + j, buf_size - j - 1)) != 0) {
 #ifdef HAVE_SIGINFO
@@ -475,6 +482,7 @@ main(int argc, char **argv)
 				buf_size = buf_size <= SIZE_MAX / 2 ? 2 * buf_size : SIZE_MAX;
 			}
 
+			/* Parse records */
 			for ( ; oldj < j; oldj++) {
 				for (k = 0; k < input_delimiters_size; k++) {
 					/* LINTED converting to signed works */

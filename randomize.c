@@ -39,6 +39,9 @@
 #ifndef MIN
 #define MIN(x, y) ((x) < (y) ? (x) : (y))
 #endif
+#ifndef __GNUC__
+#define attribute(x) /* Not supported on non-GCC compilers */
+#endif
 
 /* Used for input and output delimiters */
 struct delim {
@@ -58,7 +61,7 @@ static void handle_siginfo(int sig);
  * Returns the size of the resulting data (which is not NUL-terminated and may
  * contain NULs).
  */
-size_t unescape(char *str);
+size_t unescape(char *str) __attribute__((nonnull(1)));
 /*
  * Write nbytes bytes from buf, and the contents of output_delimiter, to file
  * descriptor d. If HAVE_SIGINFO and a SIGINFO signal is received, print
@@ -69,7 +72,9 @@ size_t unescape(char *str);
  * On error, sets errno to any of the values defined for realloc(3) or
  * writev(2).
  */
-ssize_t write_delimited(int d, void *buf, size_t nbytes, const struct delim output_delimiter);
+ssize_t write_delimited(int d, void *buf, size_t nbytes, const struct delim output_delimiter) __attribute__((nonnull(2)));
+/* Compare struct delims for size, reversed (i.e. larger delims are "smaller") */
+static inline int delimiter_cmp_size(const void *d1, const void *d2) __attribute__((nonnull(1, 2), pure));
 int main(int argc, char **argv);
 
 const char *usage = "randomize [-o str] [-i str [-i str ...]] [file [file ...]]\nrandomize [-o str] (-a | -e) [str [str ...]]\n";
@@ -408,6 +413,9 @@ main(int argc, char **argv)
 		input_delimiter[0].size = 1;
 	}
 
+	/* Sort by length (longest first) */
+	qsort(input_delimiter, input_delimiters_size, sizeof(*input_delimiter), delimiter_cmp_size);
+
 	/* Use default (stdin) if not initialized */
 	if (argv[0] == NULL) {
 		if ((argv = malloc(2 * sizeof(*argv))) == NULL)
@@ -526,4 +534,16 @@ main(int argc, char **argv)
 	}
 
 	exit(0);
+}
+
+static inline int
+delimiter_cmp_size(const void *d1, const void *d2)
+{
+	const struct delim	*dl1 = d1, *dl2 = d2;
+
+	if (dl1->size > dl2->size)
+		return -1;
+	if (dl1->size < dl2->size)
+		return 1;
+	return 0;
 }

@@ -42,9 +42,8 @@
 
 /* Used for input and output delimiters */
 struct delim {
-	const char
-		*chars;
-	int	 size;
+	const char	*chars;
+	unsigned int	 size;
 };
 
 #ifdef HAVE_SIGINFO
@@ -59,7 +58,7 @@ static void handle_siginfo(int sig);
  * Returns the size of the resulting data (which is not NUL-terminated and may
  * contain NULs).
  */
-int unescape(char *str);
+size_t unescape(char *str);
 /*
  * Write nbytes bytes from buf, and the contents of output_delimiter, to file
  * descriptor d. If HAVE_SIGINFO and a SIGINFO signal is received, print
@@ -70,7 +69,7 @@ int unescape(char *str);
  * On error, sets errno to any of the values defined for realloc(3) or
  * writev(2).
  */
-static ssize_t write_delimited(int d, void *buf, size_t nbytes, const struct delim output_delimiter);
+ssize_t write_delimited(int d, void *buf, size_t nbytes, const struct delim output_delimiter);
 int main(int argc, char **argv);
 
 const char *usage = "randomize [-o str] [-i str [-i str ...]] [file [file ...]]\nrandomize [-o str] (-a | -e) [str [str ...]]\n";
@@ -109,7 +108,7 @@ handle_siginfo(int sig)
 }
 #endif
 
-int
+size_t
 unescape(char *str)
 {
 	char		*p, *pw, ch;
@@ -127,7 +126,9 @@ unescape(char *str)
 		{ '\\',	'\\' },
 		{ '?', 	'\?' }
 	};
-	int		 i, len, skip;
+	int		 i;
+	unsigned int	 skip;
+	size_t		 len;
 
 	for (p = pw = str, len = 0; *p != '\0'; len++) {
 		/*
@@ -148,10 +149,12 @@ unescape(char *str)
 			ch = p[skip];
 			p[skip] = '\0';
 
+			/* LINTED value is in 0..255, so fits in *pw (optionally after converting to signed) */
 			*pw++ = strtoul(p + (p[1] != 'x' ? 1 : 2), NULL, p[1] != 'x' ? 8 : 16);
 
 			*(p += skip) = ch;
 		} else {
+			/* LINTED i is nonnegative, so can be compared against size_t */
 			for (i = 0; i < sizeof(escape_sequences) / sizeof(*escape_sequences); i++) {
 				/* \n or something similar */
 				if (p[1] == escape_sequences[i].ch) {
@@ -162,6 +165,7 @@ unescape(char *str)
 				}
 			}
 
+			;; /* LINTED as above */
 			if (i == sizeof(escape_sequences) / sizeof(*escape_sequences)) {
 				/* Some unidentified escape sequence, e.g. \l. */
 				*pw++ = p[1];
@@ -173,13 +177,14 @@ unescape(char *str)
 	return len;
 }
 
-static ssize_t
+ssize_t
 write_delimited(int d, void *buf, size_t nbytes, const struct delim output_delimiter)
 {
 	struct iovec	 iov[2];
 	static void	*out_chars = NULL;
 	void		*tmp;
-	static int	 out_chars_size = 0;
+	static unsigned int
+			 out_chars_size = 0;
 	ssize_t		 bytes_written, to_write;
 #ifdef HAVE_SIGINFO
 	size_t		 total_bytes_written;
@@ -205,7 +210,7 @@ write_delimited(int d, void *buf, size_t nbytes, const struct delim output_delim
 	to_write = iov[0].iov_len > SSIZE_MAX - iov[1].iov_len ? SSIZE_MAX : iov[0].iov_len + iov[1].iov_len;
 
 	/* Write until done */
-	while ((bytes_written = writev(1, iov, sizeof(iov) / sizeof(*iov))) != 0) {
+	while ((bytes_written = writev(d, iov, sizeof(iov) / sizeof(*iov))) != 0) {
 #ifdef HAVE_SIGINFO
 		if (got_siginfo && !write_delimited_handled_siginfo) {
 			fprintf(stderr, "Written %zd/%zd bytes... ", total_bytes_written, to_write);
@@ -220,20 +225,28 @@ write_delimited(int d, void *buf, size_t nbytes, const struct delim output_delim
 				return -1;
 		}
 
+		assert(bytes_written >= 0);
+
+		/* LINTED converting bytes_written to unsigned works */
 		if (bytes_written == iov[0].iov_len + iov[1].iov_len)
 			break;
+		/* LINTED idem */
 		else if (bytes_written > iov[0].iov_len) {
 			iov[0].iov_len = 0;
+			/* LINTED idem */
 			bytes_written -= iov[0].iov_len;
 			iov[1].iov_base = ((char *) iov[1].iov_base) + bytes_written;
+			/* LINTED idem */
 			iov[1].iov_len -= bytes_written;
 		} else {
 			iov[0].iov_base = ((char *) iov[0].iov_base) + bytes_written;
+			/* LINTED idem */
 			iov[0].iov_len -= bytes_written;
 		}
 
 #ifdef HAVE_SIGINFO
-		total_bytes_written = total_bytes_written > SSIZE_MAX - bytes_written ? SSIZE_MAX : total_bytes_written + bytes_written;
+		/* LINTED idem */
+		total_bytes_written = total_bytes_written > SIZE_MAX - bytes_written ? SIZE_MAX : total_bytes_written + bytes_written;
 #endif
 	}
 
@@ -243,7 +256,7 @@ write_delimited(int d, void *buf, size_t nbytes, const struct delim output_delim
 int
 main(int argc, char **argv)
 {
-	char		*buf;
+	char		*buf, newline[] = "\n";
 	struct delim 	*input_delimiter, output_delimiter;
 	enum {
 		ARG_READ,
@@ -251,12 +264,12 @@ main(int argc, char **argv)
 		ARG_UNESCAPE_RANDOMIZE
 	}		 handle_arguments;
 	int		 ch, fd;
-	uint32_t	 nlines, new_nlines, i, r;
+	uint32_t	 nlines, new_nlines, i;
 	ssize_t		 bytes_read;
 	struct {
 		size_t	 start, len;
 	}		*line;
-	size_t		 buf_size, j, oldj, input_delimiters_size, k;
+	size_t		 buf_size, j, oldj, input_delimiters_size, k, r;
 	void		*tmp;
 #ifdef HAVE_SIGINFO
 	struct sigaction act;
@@ -278,7 +291,7 @@ main(int argc, char **argv)
 	/* "Unitialized" */
 	input_delimiter = NULL;
 	input_delimiters_size = 0;
-	output_delimiter.chars = (const char []){'\n'};
+	output_delimiter.chars = newline;
 	output_delimiter.size = 1;
 
 	/* XXX Abstract input/output */
@@ -311,13 +324,20 @@ main(int argc, char **argv)
 				err(1, "Failed to allocate more input delimiters");
 			input_delimiter = tmp;
 			buf = strdup(optarg);
+			assert(input_delimiters_size < SSIZE_MAX);
+#if ARG_MAX > UINT_MAX
+#error ARG_MAX too large
+#endif
+			/* LINTED input_delimiters_size can be converted to signed, as sizeof(*input_delimiter) >= 2; we can truncate at UINT_MAX, as ARG_MAX is smaller */
 			input_delimiter[input_delimiters_size - 1].size = unescape(buf);
+			/* LINTED idem */
 			input_delimiter[input_delimiters_size - 1].chars = buf;
 
 			handle_arguments = ARG_READ;
 			break;
 		case 'o':
 			buf = strdup(optarg);
+			/* LINTED as above */
 			output_delimiter.size = unescape(buf);
 			output_delimiter.chars = buf;
 			break;
@@ -334,21 +354,30 @@ main(int argc, char **argv)
 		/*
 		 * Randomize arguments instead of files
 		 */
+		/* LINTED argc is nonnegative, so conversion works */
 		for (j = 0; j < argc; j++) {
-			r = RANDOM(argc - j) + j;
+			/* LINTED as above */
+			r = RANDOM(argc - j <= UINT32_MAX ? argc - j : UINT32_MAX) + j;
 
 			if (handle_arguments == ARG_UNESCAPE_RANDOMIZE) {
 				/*
 				 * Evaluate escape sequences
 				 */
+				/* LINTED r can be converted to signed */
+				assert(r < argc);
+				/* LINTED idem */
 				k = unescape(argv[r]);
 			} else {
 				/*
 				 * Just print string
 				 */
+				/* LINTED idem */
+				assert(r < argc);
+				/* LINTED idem */
 				k = strlen(argv[r]);
 			}
 
+			/* LINTED as above */
 			if (write_delimited(1, argv[r], k, output_delimiter) == -1)
 				err(1, "Error while writing to stdout");
 
@@ -359,6 +388,7 @@ main(int argc, char **argv)
 			}
 #endif
 
+			;; /* LINTED as above */
 			argv[r] = argv[j];
 		}
 
@@ -374,7 +404,7 @@ main(int argc, char **argv)
 	if (input_delimiter == NULL) {
 		if ((input_delimiter = malloc((input_delimiters_size = 1) * sizeof(*input_delimiter))) == NULL)
 			err(1, "Failed to allocate default input delimiters");
-		input_delimiter[0].chars = (const char []){'\n'};
+		input_delimiter[0].chars = newline;
 		input_delimiter[0].size = 1;
 	}
 
@@ -407,6 +437,7 @@ main(int argc, char **argv)
 				err(1, "Failed to read file %s", *argv);
 		}
 
+		/* LINTED j is an index into buf, so this works */
 		while ((bytes_read = read(fd, buf + j, buf_size - j - 1)) != 0) {
 #ifdef HAVE_SIGINFO
 			if (got_siginfo) {
@@ -423,6 +454,9 @@ main(int argc, char **argv)
 					err(1, "Error while reading from %s", (strcmp(*argv, "-") == 0 ? "stdin" : *argv));
 			}
 
+			assert(bytes_read >= 0);
+
+			/* LINTED bytes_read is nonnegative, j is an index into buf */
 			j += bytes_read;
 
 			if (buf_size - j < BUFSIZ) {
@@ -435,6 +469,7 @@ main(int argc, char **argv)
 
 			for ( ; oldj < j; oldj++) {
 				for (k = 0; k < input_delimiters_size; k++) {
+					/* LINTED converting to signed works */
 					if (j - oldj >= input_delimiter[k].size && memcmp(&buf[oldj], input_delimiter[k].chars, input_delimiter[k].size) == 0) {
 						if (i == nlines - 1) {
 							if (nlines > MIN(UINT32_MAX / 2, SIZE_MAX / 2 / sizeof(*line)))
@@ -450,7 +485,8 @@ main(int argc, char **argv)
 
 						line[i].len = oldj - line[i].start;
 
-						/* May point past bufp, but we'll fix that below */
+						/* May point 1 past bufp, but we'll fix that below */
+						/* LINTED converting k to signed works */
 						oldj += input_delimiter[k].size - 1;
 						line[++i].start = oldj + 1;
 
@@ -474,6 +510,7 @@ main(int argc, char **argv)
 	for (i = 0; i < nlines; i++) {
 		r = RANDOM(nlines - i) + i;
 
+		/* LINTED converting r to signed works, since r is size_t */
 		if (write_delimited(1, &buf[line[r].start], line[r].len, output_delimiter) == -1)
 			err(1, "Error while writing to stdout");
 
@@ -484,6 +521,7 @@ main(int argc, char **argv)
 		}
 #endif
 
+		;; /* LINTED as above */
 		line[r] = line[i];
 	}
 

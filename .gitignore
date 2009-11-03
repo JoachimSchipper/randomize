@@ -1,2 +1,6 @@
+*.core
+*.ln
+*.o
+*~
+.*.sw[p-z]
 randomize
-randomize.core

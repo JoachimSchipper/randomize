@@ -17,7 +17,10 @@ LINT=lint -ceFHrx -DLINT ${DEFINES}
 all: randomize
 
 clean:
-	rm -f randomize
+	rm -f randomize randomize.cat1
 
 lint:
 	${LINT} randomize.c
+
+randomize.cat1: randomize.1
+	groff -Tascii -mandoc randomize.1 > randomize.cat1

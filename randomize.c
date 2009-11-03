@@ -15,11 +15,7 @@
  */
 
 /*
- * Randomly permute the lines given on stdin. See usage for details.
- *
- * Define HAVE_ARC4RANDOM on platforms that have arc4random for better
- * performance. Define HAVE_SIGINFO on platforms that support SIGINFO to enable
- * printing data on the console on receipt of SIGINFO.
+ * Various randomization algorithms.
  */
 
 #include <sys/types.h>
@@ -73,7 +69,7 @@ int unescape(char *str);
 static ssize_t write_delimited(int d, void *buf, size_t nbytes, const struct delim output_delimiter);
 int main(int argc, char **argv);
 
-const char *usage = "randomize [-h] [-o str] [-i str [-i str ...]] [file [file ...]]\nrandomize [-h] [-o str] (-a | -u) [str [str ...]]\n";
+const char *usage = "randomize [-o str] [-i str [-i str ...]] [file [file ...]]\nrandomize [-o str] (-a | -e) [str [str ...]]\n";
 
 #ifndef HAVE_ARC4RANDOM
 /*
@@ -281,8 +277,12 @@ main(int argc, char **argv)
 	output_delimiter.chars = (const char []){'\n'};
 	output_delimiter.size = 1;
 
+	/* XXX Abstract input/output */
+	/* XXX Add -n option */
+	/* XXX Audit/clean source code */
+	/* XXX Lint */
 	handle_arguments = ARG_READ;
-	while ((ch = getopt(argc, argv, "ahi:o:u")) != -1) {
+	while ((ch = getopt(argc, argv, "aehi:o:")) != -1) {
 		switch (ch) {
 		case 'a':
 			if (handle_arguments != ARG_READ) {
@@ -292,34 +292,30 @@ main(int argc, char **argv)
 
 			handle_arguments = ARG_RANDOMIZE;
 			break;
-		case 'h':
-			fprintf(stdout, "%s", usage);
-			exit(0);
-			/* NOTREACHED */
-		case 'i':
-			if (input_delimiters_size + 1 > SIZE_MAX / sizeof(*input_delimiter)) {
-				errno = ENOMEM;
-				errx(1, "Too many input delimiters - something went horribly wrong!");
-			}
-			if ((tmp = realloc(input_delimiter, ++input_delimiters_size * sizeof(*input_delimiter))) == NULL)
-				err(1, "Failed to allocate more input delimiters");
-			input_delimiter = tmp;
-			buf = strdup(optarg);
-			input_delimiter[input_delimiters_size - 1].size = unescape(buf);
-			input_delimiter[input_delimiters_size - 1].chars = buf;
-			break;
-		case 'o':
-			buf = strdup(optarg);
-			output_delimiter.size = unescape(buf);
-			output_delimiter.chars = buf;
-			break;
-		case 'u':
+		case 'e':
 			if (handle_arguments != ARG_READ) {
 				fprintf(stderr, "%s", usage);
 				exit(127);
 			}
 
 			handle_arguments = ARG_UNESCAPE_RANDOMIZE;
+			break;
+		case 'i':
+			if (input_delimiters_size + 1 > SIZE_MAX / sizeof(*input_delimiter))
+				errx(1, "Too many input delimiters - something went horribly wrong!");
+			if ((tmp = realloc(input_delimiter, ++input_delimiters_size * sizeof(*input_delimiter))) == NULL)
+				err(1, "Failed to allocate more input delimiters");
+			input_delimiter = tmp;
+			buf = strdup(optarg);
+			input_delimiter[input_delimiters_size - 1].size = unescape(buf);
+			input_delimiter[input_delimiters_size - 1].chars = buf;
+
+			handle_arguments = ARG_READ;
+			break;
+		case 'o':
+			buf = strdup(optarg);
+			output_delimiter.size = unescape(buf);
+			output_delimiter.chars = buf;
 			break;
 		default:
 			fprintf(stderr, "%s", usage);
@@ -334,11 +330,6 @@ main(int argc, char **argv)
 		/*
 		 * Randomize arguments instead of files
 		 */
-		if (input_delimiter != NULL) {
-			fprintf(stderr, "%s", usage);
-			exit(127);
-		}
-
 		for (j = 0; j < argc; j++) {
 			r = RANDOM(argc - j) + j;
 
@@ -377,11 +368,10 @@ main(int argc, char **argv)
 
 	/* Use defaults (\0 or \n) if not initalized */
 	if (input_delimiter == NULL) {
-		if ((input_delimiter = malloc((input_delimiters_size = 2) * sizeof(*input_delimiter))) == NULL)
+		if ((input_delimiter = malloc((input_delimiters_size = 1) * sizeof(*input_delimiter))) == NULL)
 			err(1, "Failed to allocate default input delimiters");
-		input_delimiter[0].chars = (const char []){'\0'};
-		input_delimiter[1].chars = (const char []){'\n'};
-		input_delimiter[0].size = input_delimiter[1].size = 1;
+		input_delimiter[0].chars = (const char []){'\n'};
+		input_delimiter[0].size = 1;
 	}
 
 	/* Use default (stdin) if not initialized */

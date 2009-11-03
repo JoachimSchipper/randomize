@@ -232,7 +232,7 @@ write_delimited(int d, void *buf, size_t nbytes, const struct delim output_delim
 
 		assert(bytes_written >= 0);
 
-		/* LINTED converting bytes_written to unsigned works */
+		/* LINTED bytes_written is nonnegative, so can be converted to unsigned */
 		if (bytes_written == iov[0].iov_len + iov[1].iov_len)
 			break;
 		/* LINTED idem */
@@ -301,7 +301,6 @@ main(int argc, char **argv)
 
 	/* XXX Abstract input/output */
 	/* XXX Add -n option */
-	/* XXX Audit/clean source code */
 	mode = MODE_READ;
 	while ((ch = getopt(argc, argv, "aei:o:")) != -1) {
 		switch (ch) {
@@ -332,7 +331,7 @@ main(int argc, char **argv)
 #if ARG_MAX > UINT_MAX
 #error ARG_MAX too large
 #endif
-			/* LINTED input_delimiters_size can be converted to signed, as sizeof(*input_delimiter) >= 2; we can truncate at UINT_MAX, as ARG_MAX is smaller */
+			/* LINTED input_delimiters_size can be converted to signed, as sizeof(*input_delimiter) >= 2; we can truncate the return value of unescape() at UINT_MAX, as ARG_MAX is smaller */
 			input_delimiter[input_delimiters_size - 1].size = unescape(buf);
 			/* LINTED idem */
 			input_delimiter[input_delimiters_size - 1].chars = buf;
@@ -432,7 +431,7 @@ main(int argc, char **argv)
 	qsort(input_delimiter, input_delimiters_size, sizeof(*input_delimiter), delimiter_cmp_size);
 
 	/*
-	 * Read all data into buf. Find lines, add them to line[], and
+	 * Read *all* data into buf. Find lines, add them to line[], and
 	 * newline-terminate them.
 	 */
 	if ((buf = malloc(buf_size = BUFSIZ)) == NULL)

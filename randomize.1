@@ -37,7 +37,7 @@ or
 .Fl e
 flag, the arguments are instead treated as records. In either case, 
 .Nm
-prints the records to the standard output in a random order, separated by newlines (by default; see
+prints the records to the standard output in a random order, with a newline after each record (by default; see
 .Fl o ) .
 .Pp
 Several options refer to escape sequences; all escape sequences defined by the C language are accepted. In particular,
@@ -73,9 +73,9 @@ flags are given, there is exactly one record delimiter,
 .Ql \en
 (i.e. newline).
 .It Fl o Ar str
-Set the output delimiter to
-.Ar str .
-Escape sequences in
+Write
+.Ar str
+after each record. Escape sequences in
 .Ar str
 are processed.
 .El
@@ -109,6 +109,7 @@ Test a program expecting binary input:
 .Dl "$ randomize -o '' -e '\e0' '\ex3c' '\ex10\e10' | uuencode"
 .Pp
 .Sh SEE ALSO
+.Xr fortune 6 ,
 .Xr random 6 ,
 .Xr ascii 7
 .Sh AUTHORS

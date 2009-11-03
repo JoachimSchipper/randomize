@@ -36,6 +36,10 @@
 #include <string.h>
 #include <unistd.h>
 
+#ifndef MIN
+#define MIN(x, y) ((x) < (y) ? (x) : (y))
+#endif
+
 /* Used for input and output delimiters */
 struct delim {
 	const char
@@ -247,7 +251,7 @@ main(int argc, char **argv)
 		ARG_UNESCAPE_RANDOMIZE
 	}		 handle_arguments;
 	int		 ch, fd;
-	uint32_t	 nlines, i, r;
+	uint32_t	 nlines, new_nlines, i, r;
 	ssize_t		 bytes_read;
 	struct {
 		size_t	 start, len;
@@ -433,11 +437,15 @@ main(int argc, char **argv)
 				for (k = 0; k < input_delimiters_size; k++) {
 					if (j - oldj >= input_delimiter[k].size && memcmp(&buf[oldj], input_delimiter[k].chars, input_delimiter[k].size) == 0) {
 						if (i == nlines - 1) {
-							if ((tmp = realloc(line, nlines <= SIZE_MAX / sizeof(*line) / 2 ? nlines * 2 * sizeof(*line) : SIZE_MAX / sizeof(*line) * sizeof(*line))) == NULL)
-								err(1, "Failed to enlarge line buffer");
+							if (nlines > MIN(UINT32_MAX / 2, SIZE_MAX / 2 / sizeof(*line)))
+								new_nlines = MIN(UINT32_MAX, SIZE_MAX / sizeof(*line));
+							else
+								new_nlines = 2 * nlines;
+							if ((tmp = realloc(line, new_nlines * sizeof(*line))) == NULL)
+								errx(1, "Failed to enlarge line buffer");
 
 							line = tmp;
-							nlines = nlines <= SIZE_MAX / sizeof(*line) / 2 ? nlines * 2 : SIZE_MAX / sizeof(*line);
+							nlines *= new_nlines;
 						}
 
 						line[i].len = oldj - line[i].start;

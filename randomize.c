@@ -369,7 +369,7 @@ main(int argc, char **argv)
 			/* LINTED as above */
 			r = RANDOM(argc - j <= UINT32_MAX ? argc - j : UINT32_MAX) + j;
 
-			if (mode == MODE_UNESCAPE_RANDOMIZE) {
+			if (mode != MODE_UNESCAPE_RANDOMIZE) {
 				/*
 				 * Just print string
 				 */

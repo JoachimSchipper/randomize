@@ -79,7 +79,9 @@ int main(int argc, char **argv);
 
 const char *usage = "randomize [-o str] [-i str [-i str ...]] [file ...]\nrandomize [-o str] (-a | -e) [arg ...]\n";
 
-#ifndef HAVE_ARC4RANDOM
+#ifdef HAVE_ARC4RANDOM
+#define RANDOM(max) arc4random_uniform(max)
+#else
 /*
  * Return a random number chosen uniformly from 0, 1, ..., max - 1.
  */
@@ -98,8 +100,6 @@ random_uniform(uint32_t max)
 
 	return r % max;
 }
-#else
-#define RANDOM(max) arc4random_uniform(max)
 #endif
 
 #ifdef HAVE_SIGINFO

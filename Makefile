@@ -14,7 +14,7 @@ DEFINES=-DHAVE_ARC4RANDOM -DHAVE_SIGINFO
 CFLAGS=-std=c99 -pedantic -W -Wall -Wno-sign-compare -Wno-unused-parameter -Wbad-function-cast -Wcast-align -Wchar-subscripts -Wfloat-equal -Wmissing-declarations -Wmissing-format-attribute -Wmissing-noreturn -Wmissing-prototypes -Wnested-externs -Wpointer-arith -Wredundant-decls -Wshadow -Wstrict-prototypes -Wwrite-strings -Wundef -Werror -g -O2 ${DEFINES}
 LINT=lint -ceFHrx -DLINT ${DEFINES}
 
-all: randomize
+all: randomize randomize.cat1
 
 clean:
 	rm -f randomize randomize.cat1

@@ -495,7 +495,7 @@ main(int argc, char **argv)
 								errx(1, "Failed to enlarge line buffer");
 
 							line = tmp;
-							nlines *= new_nlines;
+							nlines = new_nlines;
 						}
 
 						line[i].len = oldj - line[i].start;

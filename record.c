@@ -76,7 +76,7 @@ rec_open(int fd, pcre *re, pcre_extra *re_extra)
 	template = NULL;
 	f = NULL;
 	if ((f = malloc(sizeof(*f))) == NULL ||
-	    (f->buf_p = malloc(f->buf_size = BUFSIZ)) == NULL) /* XXX Enlarge */
+	    (f->buf_p = malloc(f->buf_size = 4096)) == NULL)
 		goto err;
 
 	f->fd = f->tmp = fd;
@@ -252,8 +252,7 @@ rec_next(struct rec_file *f, off_t *offset, char **p)
 			assert(i == f->buf_first);
 		}
 
-		assert(f->buf_size >= BUFSIZ);
-		if (f->buf_size - BUFSIZ < f->buf_last - f->buf_first || eof) {
+		if (f->buf_first > f->buf_size / 2) {
 			/* Just move unprocessed data to front */
 			bcopy(&f->buf_p[f->buf_first], f->buf_p, f->buf_last - f->buf_first);
 		} else {
@@ -274,6 +273,7 @@ rec_next(struct rec_file *f, off_t *offset, char **p)
 		}
 		f->buf_last -= f->buf_first;
 		f->buf_first = 0;
+		assert(f->buf_size > f->buf_last);
 
 		/* Read additional data */
 		while ((nbytes = read(f->fd, &f->buf_p[f->buf_last], f->buf_size - f->buf_last)) == -1 && (errno == EINTR || errno == EAGAIN));
@@ -299,6 +299,10 @@ rec_next(struct rec_file *f, off_t *offset, char **p)
 
 		memcpy(*p, &f->buf_p[f->buf_first], len);
 	}
+
+#ifdef DEBUG_PRINT
+	fprintf(stderr, "record: %.*s", len, &f->buf_p[f->buf_first]);
+#endif
 
 	f->buf_first = ovector[1];
 	f->offset += len;
@@ -336,6 +340,10 @@ rec_write_offset(struct rec_file *f, off_t offset, int len, int last, const char
 		i += nbytes;
 	}
 	assert(i == len);
+
+#ifdef DEBUG_PRINT
+	fprintf(stderr, "printing: %.*s", len, f->buf_p);
+#endif
 
 	return rec_write_mem(f, f->buf_p, len, last, delim, file);
 

@@ -313,7 +313,7 @@ err:
 	return -1;
 }
 
-int
+const char *
 rec_write_offset(struct rec_file *f, off_t offset, int len, int last, const char *delim, FILE *file)
 {
 	int		 i;
@@ -328,12 +328,16 @@ rec_write_offset(struct rec_file *f, off_t offset, int len, int last, const char
 
 	nbytes = 0;
 	/* XXX Document that this trashes f->buf_p */
+	assert(f->buf_first == 0);
+	assert(f->buf_first == f->buf_last);
 	for (i = 0; i < len; nbytes = pread(f->tmp, &f->buf_p[i], len - i, offset + i)) {
 		if (nbytes == -1) {
 			if (errno == EINTR || errno == EAGAIN)
 				continue;
-			else
+			else {
+				snprintf(f->buf_p, f->buf_size, "Failed to read record from file: %s", strerror(errno));
 				goto err;
+			}
 		}
 
 		assert(nbytes >= 0);
@@ -348,10 +352,10 @@ rec_write_offset(struct rec_file *f, off_t offset, int len, int last, const char
 	return rec_write_mem(f, f->buf_p, len, last, delim, file);
 
 err:
-	return -1;
+	return f->buf_p;
 }
 
-int
+const char *
 rec_write_mem(struct rec_file *f, const char *p, int len, int last, const char *delim, FILE *file)
 {
 	int		 rv, i, value;
@@ -387,8 +391,10 @@ rec_write_mem(struct rec_file *f, const char *p, int len, int last, const char *
 
 	/* Output anything prior to match */
 	nbytes = fwrite(p, 1, ovector[0], file);
-	if (nbytes != ovector[0])
+	if (nbytes != ovector[0]) {
+		snprintf(f->buf_p, f->buf_size, "Failed to write output: %s", strerror(errno));
 		goto err;
+	}
 
 	/* Output delim, handling backreferences and the like */
 	state = NORMAL;
@@ -406,17 +412,18 @@ rec_write_mem(struct rec_file *f, const char *p, int len, int last, const char *
 output_match:
 				if (value >= rv) {
 					if (rv == 0) {
-						/* XXX */
-						errx(1, "Incomplete final record, cannot print match");
+						snprintf(f->buf_p, f->buf_size, "Incomplete final record, cannot print match");
+						goto err;
 					} else {
-						/* XXX */
-						assert(rv >= 1);
-						errx(1, "Invalid backreference \\%d", value);
+						snprintf(f->buf_p, f->buf_size, "Invalid backreference \\%d", value);
+						goto err;
 					}
 				}
 				nbytes = fwrite(&p[ovector[2 * value]], 1, ovector[2 * value + 1] - ovector[2 * value], file);
-				if (nbytes != ovector[2 * value + 1] - ovector[2 * value])
+				if (nbytes != ovector[2 * value + 1] - ovector[2 * value]) {
+					snprintf(f->buf_p, f->buf_size, "Failed to write match: %s", strerror(errno));
 					goto err;
+				}
 
 				state = NORMAL;
 				break;
@@ -427,37 +434,37 @@ output_match:
 			switch (delim[i]) {
 			case 'a':
 				if (putc('\a', file) == EOF)
-					goto err;
+					goto err_char;
 				state = NORMAL;
 				break;
 			case 'b':
 				if (putc('\b', file) == EOF)
-					goto err;
+					goto err_char;
 				state = NORMAL;
 				break;
 			case 'f':
 				if (putc('\f', file) == EOF)
-					goto err;
+					goto err_char;
 				state = NORMAL;
 				break;
 			case 'n':
 				if (putc('\n', file) == EOF)
-					goto err;
+					goto err_char;
 				state = NORMAL;
 				break;
 			case 'r':
 				if (putc('\r', file) == EOF)
-					goto err;
+					goto err_char;
 				state = NORMAL;
 				break;
 			case 't':
 				if (putc('\t', file) == EOF)
-					goto err;
+					goto err_char;
 				state = NORMAL;
 				break;
 			case 'v':
 				if (putc('\v', file) == EOF)
-					goto err;
+					goto err_char;
 				state = NORMAL;
 				break;
 			case 'x':
@@ -481,8 +488,8 @@ output_match:
 				value = delim[i] - '\0';
 				goto output_match;
 			default:
-				/* XXX Make this an error to enable future expansion? */
-				errx(1, "Invalid escape \\%c", delim[i]);
+				snprintf(f->buf_p, f->buf_size, "Invalid escape sequence \\%c: reserved for future use", delim[i]);
+				goto err;
 			}
 			break;
 		case SEEN_HEX0: /* FALLTHROUGH */
@@ -493,20 +500,21 @@ output_match:
 				value = 16 * value + delim[i] - (isupper(delim[i]) ? 'A' : 'a') + 10;
 			else if (state == SEEN_HEX1) {
 				if (putc(value, file) == EOF)
-					goto err;
+					goto err_char;
 
 				value = 0;
 				state = NORMAL;
 				i--;
-			} else
-				/* XXX print error */
+			} else {
+				snprintf(f->buf_p, f->buf_size, "Invalid escape sequence \\x%c: expected a hex digit", delim[i]);
 				goto err;
+			}
 
 			if (state == SEEN_HEX0)
 				state = SEEN_HEX1;
 			else {
 				if (putc(value, file) == EOF)
-					goto err;
+					goto err_char;
 
 				value = 0;
 				state = NORMAL;
@@ -525,7 +533,7 @@ output_match:
 				goto output_match;
 			} else {
 				if (putc(value, file) == EOF)
-					goto err;
+					goto err_char;
 
 				value = 0;
 				state = NORMAL;
@@ -536,7 +544,7 @@ output_match:
 				state = SEEN_OCTAL2;
 			else {
 				if (putc(value, file) == EOF)
-					goto err;
+					goto err_char;
 
 				value = 0;
 				state = NORMAL;
@@ -546,12 +554,15 @@ output_match:
 	}
 
 	if (value != 0 && putc(value, file) == EOF)
-		goto err;
+		goto err_char;
 
 	assert(i == strlen(delim));
 
-	return 0;
+	return NULL;
+
+err_char:
+	snprintf(f->buf_p, f->buf_size, "Failed to write character: %s", strerror(errno));
 
 err:
-	return -1;
+	return f->buf_p;
 }

@@ -47,11 +47,12 @@ int rec_next(struct rec_file *f, off_t *offset, char **p) __attribute__((nonnull
  *
  * Set last to non-zero if this is the last record. delim XXX
  *
- * Returns 0 on success; otherwise, returns -1 and sets errno as for putc(3) or
- * fwrite(3).
+ * Returns NULL on success; otherwise, returns an error message and sets errno
+ * as for putc(3) or fwrite(3). Note that the error message already
+ * incorporates strerror(errno) if appropriate.
  */
-int rec_write_offset(struct rec_file *f, off_t offset, int len, int last, const char *delim, FILE *file) __attribute__((nonnull(1, 5, 6)));
-int rec_write_mem(struct rec_file *f, const char *p, int len, int last, const char *delim, FILE *file) __attribute__((nonnull(1, 2, 5, 6)));
+const char *rec_write_offset(struct rec_file *f, off_t offset, int len, int last, const char *delim, FILE *file) __attribute__((nonnull(1, 5, 6)));
+const char *rec_write_mem(struct rec_file *f, const char *p, int len, int last, const char *delim, FILE *file) __attribute__((nonnull(1, 2, 5, 6)));
 
 /*
  * Free all resources allocated by rec_open(). Note that this does not close

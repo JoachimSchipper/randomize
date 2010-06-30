@@ -233,8 +233,8 @@ main(int argc, char **argv)
 	/* Write out data */
 	/* XXX Elevator algorithm? */
 	for (i = 0; i < j; i++)
-		if (rec_write_offset(rec[i].f, rec[i].offset, rec[i].len, i == last, output_str, stdout) != 0)
-			err(1, "Failed to write output");
+		if ((errstr = rec_write_offset(rec[i].f, rec[i].offset, rec[i].len, i == last, output_str, stdout)) != NULL)
+			err(1, "%s", errstr);
 
 	for (i = 0; i < argc; i++) {
 		fd = rec_fd(f[i]);

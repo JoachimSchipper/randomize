@@ -86,7 +86,7 @@ main(int argc, char **argv)
 {
 	const char	*re_str, *output_str, *errstr;
 	char		 ch;
-	int		 fd, error_offset;
+	int		 fd, error_offset, rv;
 	unsigned int	 i, last;
 	uint_fast32_t	 r, nrecords, rec_size, j;
 	struct rec_file
@@ -226,7 +226,8 @@ main(int argc, char **argv)
 		fd = rec_fd(f[i]);
 		if (rec_close(f[i]) != 0)
 			err(1, "Failed to rec_close %s", argc == 0 ? "(stdin)" : argv[i]);
-		if (close(fd) != 0) /* XXX Loop on EINTR */
+		while ((rv = close(fd)) != 0 && (errno == EINTR || errno == EAGAIN));
+		if (rv != 0)
 			err(1, "Failed to close %s", argc == 0 ? "(stdin)" : argv[i]);
 	}
 

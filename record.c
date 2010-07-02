@@ -154,7 +154,7 @@ rec_close(struct rec_file *f)
 	rv = 0;
 
 	if (f->tmp != -1 && f->tmp != f->fd)
-		rv = close(f->tmp);
+		while ((rv = close(f->tmp)) != 0 && (errno == EINTR || errno == EAGAIN));
 
 	free(f->buf_p);
 	free(f);

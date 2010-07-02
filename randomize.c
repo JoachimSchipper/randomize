@@ -109,7 +109,6 @@ main(int argc, char **argv)
 	 * Enable SIGINFO handler
 	 */
 	act.sa_handler = handle_siginfo;
-	/* XXX We do, right? */
 	/* We do *not* wish to restart read() and the like on SIGINFO */
 	act.sa_flags = 0;
 	/* Do not block any other signals while handling this signal */
@@ -175,8 +174,6 @@ main(int argc, char **argv)
 
 			if ((f[i] = rec_open(fd, re, re_extra)) == NULL)
 				err(1, "Failed to rec_open %s", strcmp(argv[i], "-") == 0 ? "stdin" : argv[i]);
-			/* XXX */
-			assert(rec_fd(f[i]) != -1);
 		}
 	}
 

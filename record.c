@@ -205,8 +205,8 @@ rec_next(struct rec_file *f, off_t *offset, char **p)
 	eof = 0;
 	while ((rv = pcre_exec(f->re, f->re_extra, f->buf_p, f->buf_last - f->buf_first, f->buf_first, eof ? 0 : PCRE_NOTEOL, ovector, ovector_size)) < 0) {
 		if (rv != PCRE_ERROR_NOMATCH) {
-			/* XXX Handle error */
-			errx(1, "pcre_exec() failed: code %d", rv);
+			errno = EINVAL;
+			goto err;
 		}
 
 		if (eof) {
@@ -225,7 +225,7 @@ rec_next(struct rec_file *f, off_t *offset, char **p)
 			assert(f->buf_last == 0);
 
 			errno = 0;
-			return -1;
+			goto err;
 		}
 
 		/*
@@ -384,6 +384,7 @@ rec_write_mem(struct rec_file *f, const char *p, int len, int last, const char *
 		assert(last);
 
 		rv = 0;
+		ovector[0] = ovector[1] = len;
 	} else {
 		assert(rv >= 1);
 		assert(ovector[1] == len);
@@ -412,9 +413,14 @@ rec_write_mem(struct rec_file *f, const char *p, int len, int last, const char *
 output_match:
 				if (value >= rv) {
 					if (rv == 0) {
-						snprintf(f->buf_p, f->buf_size, "Incomplete final record, cannot print match");
+						if (value == 0)
+							snprintf(f->buf_p, f->buf_size, "The argument to -o contains & (by default), but the last record is not terminated");
+						else
+							snprintf(f->buf_p, f->buf_size, "The argument to -o contains \\%d, but the last record is not terminated", value);
+
 						goto err;
 					} else {
+						assert(value > 0);
 						snprintf(f->buf_p, f->buf_size, "Invalid backreference \\%d", value);
 						goto err;
 					}

@@ -38,7 +38,8 @@ struct rec_file *rec_open(int fd, pcre *re, pcre_extra *re_extra) __attribute__(
  * the record.
  *
  * Returns the size of the record on success; otherwise, returns -1 and sets
- * errno XXX. As a special case, it returns -1 and sets errno to 0 on EOF.
+ * errno as for read(2), write(2), or malloc(3), or to 0 on EOF, or to EINVAL
+ * if there was an error while processing the regular expression.
  */
 int rec_next(struct rec_file *f, off_t *offset, char **p) __attribute__((nonnull(1)));
 

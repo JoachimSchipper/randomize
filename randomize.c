@@ -100,10 +100,6 @@ main(int argc, char **argv)
 	}		*rec;
 	pcre		*re;
 	pcre_extra	*re_extra;
-#ifndef NDEBUG
-	/* XXX Significantly hurts performance */
-	char		*p;
-#endif
 #ifdef HAVE_SIGINFO
 	struct sigaction act;
 #endif
@@ -205,25 +201,18 @@ main(int argc, char **argv)
 
 			rec[j] = rec[r = random_uniform(j + 1)];
 			rec[r].f = f[i];
-#ifndef NDEBUG
-			if ((rec[r].len = rec_next(f[i], &rec[r].offset, &p)) == -1)
-#else
-			if ((rec[r].len = rec_next(f[i], &rec[r].offset, NULL)) == -1)
-#endif
-			{
+			if ((rec[r].len = rec_next(f[i], &rec[r].offset, NULL)) == -1) {
 				if (errno == 0) {
 					rec[r] = rec[j];
 					/* EOF */
 					break;
 				} else
-					err(1, "Failed to read from %s", argc == 0 || strcmp(argv[i], "-") == 0 ? "stdin" : argv[i]);
+					err(1, "Failed to read from %s: %s%s",
+					    argc == 0 || strcmp(argv[i], "-") == 0 ? "stdin" : argv[i],
+					    strerror(errno),
+					    errno == EINVAL ? " or error in regular expression" : "");
 			}
 			assert(rec[r].len > 0);
-#ifndef NDEBUG
-			if (strcmp(re_str, "\n"))
-				assert(p[rec[r].len - 1] == '\n');
-			free(p);
-#endif
 			last = r;
 
 			j++;

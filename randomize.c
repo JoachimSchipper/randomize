@@ -38,6 +38,9 @@
 #ifndef MIN
 #define MIN(x, y) ((x) < (y) ? (x) : (y))
 #endif
+#ifndef MAX
+#define MAX(x, y) ((x) > (y) ? (x) : (y))
+#endif
 
 /* XXX Handle SIGPIPE better (die silently) */
 #ifdef HAVE_SIGINFO
@@ -87,16 +90,14 @@ main(int argc, char **argv)
 	const char	*re_str, *output_str, *errstr;
 	char		 ch;
 	int		 fd, error_offset, rv;
-	unsigned int	 i, last;
-	uint_fast32_t	 r, nrecords, rec_size, j;
+	unsigned int	 f_no, i;
+	uint_fast32_t	 r, nrecords, rec_size, rec_no, *last;
 	struct rec_file
 		       **f;
 	void		*tmp;
 	struct {
 		off_t	 offset;
-		struct rec_file
-			*f;
-		int	 len;
+		int	 len, f_no;
 	}		*rec;
 	pcre		*re;
 	pcre_extra	*re_extra;
@@ -124,7 +125,7 @@ main(int argc, char **argv)
 	/* Defaults */
 	re_str = "\n";
 	output_str = "&";
-	nrecords = 0;
+	nrecords = UINT32_MAX;
 
 	while ((ch = getopt(argc, argv, "e:n:o:")) != -1) {
 		switch (ch) {
@@ -132,7 +133,7 @@ main(int argc, char **argv)
 			re_str = optarg;
 			break;
 		case 'n':
-			nrecords = strtonum(optarg, 1, MIN(SIZE_MAX, LLONG_MAX), &errstr);
+			nrecords = strtonum(optarg, 1, UINT32_MAX - 1, &errstr);
 			if (errstr)
 				errx(1, "number of records is %s: %s", errstr, optarg);
 			break;
@@ -157,36 +158,39 @@ main(int argc, char **argv)
 	if (errstr != NULL)
 		errx(1, "Failed to study regular expression %s: %s", re_str, errstr);
 
+	if (argc > SIZE_MAX / MAX(sizeof(*f), sizeof(*last))) {
+		errno = ENOMEM;
+		err(1, "Failed to allocate memory for files and end-of-file markers");
+	}
 	if ((f = malloc((argc == 0 ? 1 : argc) * sizeof(*f))) == NULL)
 		err(1, "Failed to allocate memory for files");
+	if ((last = malloc((argc == 0 ? 1 : argc) * sizeof(*last))) == NULL)
+		err(1, "Failed to allocate memory for end-of-file markers");
 
-	if (argc == 0) {
-		if ((f[0] = rec_open(0, re, re_extra)) == NULL)
-			err(1, "Failed to open stdin");
-	} else {
-		for (i = 0; i < argc; i++) {
-			if (strcmp(argv[i], "-") == 0)
-				fd = 0;
-			else {
-				if ((fd = open(argv[i], O_RDONLY, 0644)) == -1)
-					err(1, "Failed to open %s", argv[i]);
-			}
-
-			if ((f[i] = rec_open(fd, re, re_extra)) == NULL)
-				err(1, "Failed to rec_open %s", strcmp(argv[i], "-") == 0 ? "stdin" : argv[i]);
-		}
-	}
-
-	/* XXX Support -n */
-	assert(nrecords == 0);
-	if ((rec = malloc((rec_size = 1) * sizeof(*rec))) == NULL) /* XXX Enlarge */
+	if ((rec = malloc((rec_size = 128) * sizeof(*rec))) == NULL)
 		err(1, "Failed to allocate memory for records");
 
-	j = last = 0;
-	for (i = 0; i < 1 || i < argc; i++) {
+	rec_no = 0;
+	for (f_no = 0; f_no < 1 || f_no < argc; f_no++) {
+		/* Open file */
+		if (argc == 0 || strcmp(argv[f_no], "-") == 0)
+			fd = 0;
+		else
+			if ((fd = open(argv[f_no], O_RDONLY, 0644)) == -1)
+				err(1, "Failed to open %s", argv[f_no]);
+
+		if ((f[f_no] = rec_open(fd, re, re_extra)) == NULL)
+			err(1, "Failed to rec_open %s", strcmp(argv[f_no], "-") == 0 ? "stdin" : argv[f_no]);
+
 		while (1) {
-			/* Loop invariant: rec[0] to rec[j] is random */
-			if (j >= rec_size) {
+			/*
+			 * Loop invariant: rec_no is the number of the current
+			 * record (among all files), and rec[0] through
+			 * rec[MIN(rec_no, nrecords)] is a random selection of
+			 * distinct records from among all records we have
+			 * already seen.
+			 */
+			if (MIN(rec_no, nrecords) >= rec_size) {
 				if (rec_size > MIN(UINT32_MAX / 2, SIZE_MAX / 2 / sizeof(*rec)))
 					err(1, "Too many records");
 				if ((tmp = realloc(rec, 2 * rec_size * sizeof(*rec))) == NULL)
@@ -196,31 +200,42 @@ main(int argc, char **argv)
 				rec_size *= 2;
 			}
 
-			rec[j] = rec[r = random_uniform(j + 1)];
-			rec[r].f = f[i];
-			if ((rec[r].len = rec_next(f[i], &rec[r].offset, NULL)) == -1) {
+			r = random_uniform(rec_no + 1);
+			if (r > nrecords)
+				r = nrecords;
+			rec[MIN(rec_no, nrecords)] = rec[r];
+
+			rec[r].f_no = f_no;
+			if ((rec[r].len = rec_next(f[f_no], &rec[r].offset, NULL)) == -1) {
 				if (errno == 0) {
-					rec[r] = rec[j];
 					/* EOF */
+					rec[r] = rec[MIN(rec_no, nrecords)];
+					assert(r == MIN(rec_no, nrecords) || rec[r].len > 0);
 					break;
 				} else
 					err(1, "Failed to read from %s: %s%s",
-					    argc == 0 || strcmp(argv[i], "-") == 0 ? "stdin" : argv[i],
+					    argc == 0 || strcmp(argv[f_no], "-") == 0 ? "stdin" : argv[f_no],
 					    strerror(errno),
 					    errno == EINVAL ? " or error in regular expression" : "");
 			}
-			assert(rec[r].len > 0);
-			last = r;
 
-			j++;
+			assert(rec[r].len > 0);
+			last[f_no] = r;
+			if (++rec_no == UINT32_MAX - 1)
+				errx(1, "Too many records");
 		}
 	}
 
 	/* Write out data */
 	/* XXX Elevator algorithm? */
-	for (i = 0; i < j; i++)
-		if ((errstr = rec_write_offset(rec[i].f, rec[i].offset, rec[i].len, i == last, output_str, stdout)) != NULL)
-			err(1, "%s", errstr);
+	for (i = 0; i < rec_no && (nrecords == 0 || i < nrecords); i++) {
+		if ((errstr = rec_write_offset(f[rec[i].f_no], rec[i].offset, rec[i].len, i == last[rec[i].f_no], output_str, stdout)) != NULL) {
+			if (errno == 0)
+				errx(1, "%s", errstr);
+			else
+				err(1, "%s", errstr);
+		}
+	}
 
 	for (i = 0; i < argc; i++) {
 		fd = rec_fd(f[i]);

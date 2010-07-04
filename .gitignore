@@ -5,3 +5,4 @@
 .*.sw[p-z]
 randomize
 randomize.cat1
+test/*.result

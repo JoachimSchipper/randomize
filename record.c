@@ -26,6 +26,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#include <vis.h> /* XXX Portability */
 
 #include <pcre.h>
 
@@ -368,6 +369,7 @@ rec_write_mem(struct rec_file *f, const char *p, int len, int last, const char *
 		SEEN_HEX1
 	}		 state;
 	ssize_t		 nbytes;
+	char		 tmp[5];
 #ifndef NDEBUG
 	int		 capturecount;
 
@@ -400,7 +402,7 @@ rec_write_mem(struct rec_file *f, const char *p, int len, int last, const char *
 	/* Output delim, handling backreferences and the like */
 	state = NORMAL;
 	value = 0;
-	for (i = 0; i < strlen(delim); i++) {
+	for (i = 0; i <= strlen(delim); i++) {
 		switch (state) {
 		case NORMAL:
 			value = 0;
@@ -410,7 +412,10 @@ rec_write_mem(struct rec_file *f, const char *p, int len, int last, const char *
 				break;
 			case '&':
 				/* Output match; note the label! */
+				assert(value == 0);
 output_match:
+				assert(value >= 0);
+				assert(value <= 9);
 				if (value >= rv) {
 					if (rv == 0) {
 						if (value == 0)
@@ -432,6 +437,13 @@ output_match:
 				}
 
 				state = NORMAL;
+				break;
+			case '\0':
+				/* Ignore */
+				break;
+			default:
+				if (putc(delim[i], file) == EOF)
+					goto err_char;
 				break;
 			}
 			break;
@@ -486,15 +498,16 @@ output_match:
 			case '6': /* FALLTHROUGH */
 			case '7':
 				/* Note: may also be a backreference, handled below */
-				value = delim[i] - '\0';
+				value = delim[i] - '0';
 				state = SEEN_OCTAL1;
 				break;
 			case '8': /* FALLTHROUGH */
 			case '9':
-				value = delim[i] - '\0';
+				value = delim[i] - '0';
 				goto output_match;
 			default:
-				snprintf(f->buf_p, f->buf_size, "Invalid escape sequence \\%c: reserved for future use", delim[i]);
+				vis(tmp, delim[i], VIS_CSTYLE | VIS_NOSLASH, ':');
+				snprintf(f->buf_p, f->buf_size, "Invalid escape sequence \\%s: reserved for future use", tmp);
 				goto err;
 			}
 			break;
@@ -505,14 +518,14 @@ output_match:
 			else if (isxdigit(delim[i]))
 				value = 16 * value + delim[i] - (isupper(delim[i]) ? 'A' : 'a') + 10;
 			else if (state == SEEN_HEX1) {
-				if (putc(value, file) == EOF)
-					goto err_char;
-
-				value = 0;
-				state = NORMAL;
+				/*
+				 * Not a hex digit - print value and process
+				 * delim[i] again
+				 */
 				i--;
 			} else {
-				snprintf(f->buf_p, f->buf_size, "Invalid escape sequence \\x%c: expected a hex digit", delim[i]);
+				vis(tmp, delim[i], VIS_CSTYLE, ':');
+				snprintf(f->buf_p, f->buf_size, "Invalid escape sequence \\x%s: expected a hex digit", tmp);
 				goto err;
 			}
 
@@ -532,17 +545,16 @@ output_match:
 				value = 8 * value + delim[i] - '0';
 			else if (state == SEEN_OCTAL1 && value != 0) {
 				/*
-				 * This is not octal at all, but a
-				 * backreference like "\2"!
+				 * Not an octal digit - print *backreference*
+				 * and process delim[i] again.
 				 */
 				i--;
 				goto output_match;
 			} else {
-				if (putc(value, file) == EOF)
-					goto err_char;
-
-				value = 0;
-				state = NORMAL;
+				/*
+				 * Not an octal digit - print value and process
+				 * delim[i] again.
+				 */
 				i--;
 			}
 
@@ -559,10 +571,7 @@ output_match:
 		}
 	}
 
-	if (value != 0 && putc(value, file) == EOF)
-		goto err_char;
-
-	assert(i == strlen(delim));
+	assert(i == strlen(delim) + 1);
 
 	return NULL;
 

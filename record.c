@@ -36,8 +36,6 @@
 #define MIN(x, y) ((x) < (y) ? (x) : (y))
 #endif
 
-/* XXX Fix signal-safety */
-
 struct rec_file {
 	char		*buf_p;
 	pcre		*re;
@@ -152,10 +150,9 @@ rec_close(struct rec_file *f)
 {
 	int		 rv;
 
-	rv = 0;
-
 	if (f->tmp != -1 && f->tmp != f->fd)
-		while ((rv = close(f->tmp)) != 0 && (errno == EINTR || errno == EAGAIN));
+		if ((rv = close(f->tmp)) != 0)
+			return rv;
 
 	free(f->buf_p);
 	free(f);
@@ -172,7 +169,7 @@ rec_close(struct rec_file *f)
 		}
 	}
 
-	return rv;
+	return 0;
 }
 
 int
@@ -328,17 +325,12 @@ rec_write_offset(struct rec_file *f, off_t offset, int len, int last, const char
 	assert(len <= f->buf_size);
 
 	nbytes = 0;
-	/* XXX Document that this trashes f->buf_p */
 	assert(f->buf_first == 0);
 	assert(f->buf_first == f->buf_last);
 	for (i = 0; i < len; nbytes = pread(f->tmp, &f->buf_p[i], len - i, offset + i)) {
 		if (nbytes == -1) {
-			if (errno == EINTR || errno == EAGAIN)
-				continue;
-			else {
-				snprintf(f->buf_p, f->buf_size, "Failed to read record from file: %s", strerror(errno));
-				goto err;
-			}
+			snprintf(f->buf_p, f->buf_size, "Failed to read record from file: %s", strerror(errno));
+			goto err;
 		}
 
 		assert(nbytes >= 0);

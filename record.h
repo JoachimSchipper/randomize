@@ -14,8 +14,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* XXX Description */
-/* XXX Requires pcre.h, stdio.h */
+/*
+ * A simple API for treating a file descriptor as a stream of records. Requires
+ * <stdio.h> and <pcre.h> (and -lpcre).
+ */
 
 #ifndef __GNUC__
 #define __attribute__(x) /* Not supported by non-GCC compilers */
@@ -44,13 +46,14 @@ struct rec_file *rec_open(int fd, pcre *re, pcre_extra *re_extra) __attribute__(
 int rec_next(struct rec_file *f, off_t *offset, char **p) __attribute__((nonnull(1)));
 
 /*
- * Write record to FILE *.
+ * Write record to FILE *. Calling rec_next() after rec_write_*() causes
+ * undefined behaviour.
  *
  * Set last to non-zero if this is the last record. delim XXX
  *
  * Returns NULL on success; otherwise, returns an error message and sets errno
- * as for putc(3) or fwrite(3). Note that the error message already
- * incorporates strerror(errno) if appropriate.
+ * as for putc(3), fwrite(3), or (for rec_write_offset) read(2). Where
+ * appropriate, strerror(errno) is already incorporated in the error message.
  */
 const char *rec_write_offset(struct rec_file *f, off_t offset, int len, int last, const char *delim, FILE *file) __attribute__((nonnull(1, 5, 6)));
 const char *rec_write_mem(struct rec_file *f, const char *p, int len, int last, const char *delim, FILE *file) __attribute__((nonnull(1, 2, 5, 6)));
@@ -60,6 +63,7 @@ const char *rec_write_mem(struct rec_file *f, const char *p, int len, int last, 
  * the file descriptor passed to rec_open().
  *
  * Returns 0 on succcess; otherwise, returns -1 and sets errno as for close(2).
+ * In the latter case, f is not altered.
  */
 int rec_close(struct rec_file *f) __attribute__((nonnull(1)));
 

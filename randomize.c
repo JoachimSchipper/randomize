@@ -206,14 +206,15 @@ main(int argc, char **argv)
 			rec[MIN(rec_no, nrecords)] = rec[r];
 
 			rec[r].f_no = f_no;
-			if ((rec[r].len = rec_next(f[f_no], &rec[r].offset, NULL)) == -1) {
+			while ((rec[r].len = rec_next(f[f_no], &rec[r].offset, NULL)) == -1 && (errno == EINTR || errno == EAGAIN));
+			if (rec[r].len == -1) {
 				if (errno == 0) {
 					/* EOF */
 					rec[r] = rec[MIN(rec_no, nrecords)];
 					assert(r == MIN(rec_no, nrecords) || rec[r].len > 0);
 					break;
 				} else
-					err(1, "Failed to read from %s: %s%s",
+					errx(1, "Failed to read from %s: %s%s",
 					    argc == 0 || strcmp(argv[f_no], "-") == 0 ? "stdin" : argv[f_no],
 					    strerror(errno),
 					    errno == EINVAL ? " or error in regular expression" : "");
@@ -228,22 +229,18 @@ main(int argc, char **argv)
 
 	/* Write out data */
 	/* XXX Elevator algorithm? */
-	for (i = 0; i < rec_no && (nrecords == 0 || i < nrecords); i++) {
-		if ((errstr = rec_write_offset(f[rec[i].f_no], rec[i].offset, rec[i].len, i == last[rec[i].f_no], output_str, stdout)) != NULL) {
-			if (errno == 0)
-				errx(1, "%s", errstr);
-			else
-				err(1, "%s", errstr);
-		}
-	}
+	for (i = 0; i < rec_no && (nrecords == 0 || i < nrecords); i++)
+		if ((errstr = rec_write_offset(f[rec[i].f_no], rec[i].offset, rec[i].len, i == last[rec[i].f_no], output_str, stdout)) != NULL)
+			errx(1, "%s", errstr);
 
 	for (i = 0; i < argc; i++) {
 		fd = rec_fd(f[i]);
-		if (rec_close(f[i]) != 0)
-			err(1, "Failed to rec_close %s", argc == 0 ? "(stdin)" : argv[i]);
+		while ((rv = rec_close(f[i])) != 0 && (errno == EINTR || errno == EAGAIN));
+		if (rv != 0)
+			err(1, "Failed to rec_close %s", argc == 0 ? "stdin" : argv[i]);
 		while ((rv = close(fd)) != 0 && (errno == EINTR || errno == EAGAIN));
 		if (rv != 0)
-			err(1, "Failed to close %s", argc == 0 ? "(stdin)" : argv[i]);
+			err(1, "Failed to close %s", argc == 0 ? "stdin" : argv[i]);
 	}
 
 	exit(0);

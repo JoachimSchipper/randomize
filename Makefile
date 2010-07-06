@@ -28,8 +28,8 @@ randomize: ${OBJS}
 	${CC} ${CFLAGS} ${LDFLAGS} -o randomize ${OBJS}
 
 test: randomize test/1.in test/1.out test/2a.in test/2b.in test/2c.in test/2.out test/3.in test/3.out test/4.in test/4.out
-	# Basic functionality
-	./randomize test/1.in | sort > test/1.result &&\
+	# Basic functionality, reading from pipe
+	cat test/1.in | ./randomize | sort > test/1.result &&\
 		diff -u test/1.out test/1.result
 	# Multiple files
 	./randomize test/2a.in test/2b.in test/2c.in | sort > test/2.result &&\

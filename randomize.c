@@ -22,11 +22,11 @@
 #include <err.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <inttypes.h>
 #include <limits.h>
 #ifdef HAVE_SIGINFO
 #include <signal.h>
 #endif
-#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -42,10 +42,8 @@
 #define MAX(x, y) ((x) > (y) ? (x) : (y))
 #endif
 
-/* XXX Handle SIGPIPE better (die silently) */
 #ifdef HAVE_SIGINFO
-/* XXX Support this properly */
-static volatile sig_atomic_t got_siginfo = 0, write_delimited_handled_siginfo = 0;
+static volatile sig_atomic_t got_siginfo = 0;
 static void handle_siginfo(int sig);
 #endif
 
@@ -80,7 +78,6 @@ handle_siginfo(int sig)
 	assert(sig == SIGINFO);
 
 	got_siginfo = 1;
-	write_delimited_handled_siginfo = 0;
 }
 #endif
 
@@ -103,9 +100,7 @@ main(int argc, char **argv)
 	pcre_extra	*re_extra;
 #ifdef HAVE_SIGINFO
 	struct sigaction act;
-#endif
 
-#ifdef HAVE_SIGINFO
 	/*
 	 * Enable SIGINFO handler
 	 */
@@ -116,6 +111,8 @@ main(int argc, char **argv)
 	act.sa_mask = 0;
 
 	sigaction(SIGINFO, &act, NULL);
+
+	/* XXX Do we also need to unbuffer stdin? */
 #endif
 
 	re = NULL;
@@ -176,13 +173,21 @@ main(int argc, char **argv)
 		if (argc == 0 || strcmp(argv[f_no], "-") == 0)
 			fd = 0;
 		else
-			if ((fd = open(argv[f_no], O_RDONLY, 0644)) == -1)
+			if ((fd = open(argv[f_no], O_RDONLY | O_SHLOCK, 0644)) == -1)
 				err(1, "Failed to open %s", argv[f_no]);
 
 		if ((f[f_no] = rec_open(fd, re, re_extra)) == NULL)
 			err(1, "Failed to rec_open %s", strcmp(argv[f_no], "-") == 0 ? "stdin" : argv[f_no]);
 
 		while (1) {
+			if (got_siginfo) {
+				got_siginfo = 0;
+				fprintf(stderr, "Reading %s: read %" PRIuFAST32 " records (in total)\n",
+				    argc == 0 || strcmp(argv[f_no], "-") == 0 ? "stdin" : argv[f_no],
+				    rec_no);
+				fflush(stderr);
+			}
+
 			/*
 			 * Loop invariant: rec_no is the number of the current
 			 * record (among all files), and rec[0] through
@@ -206,14 +211,15 @@ main(int argc, char **argv)
 			rec[MIN(rec_no, nrecords)] = rec[r];
 
 			rec[r].f_no = f_no;
-			while ((rec[r].len = rec_next(f[f_no], &rec[r].offset, NULL)) == -1 && (errno == EINTR || errno == EAGAIN));
-			if (rec[r].len == -1) {
+			if ((rec[r].len = rec_next(f[f_no], &rec[r].offset, NULL)) == -1) {
 				if (errno == 0) {
 					/* EOF */
 					rec[r] = rec[MIN(rec_no, nrecords)];
 					assert(r == MIN(rec_no, nrecords) || rec[r].len > 0);
 					break;
-				} else
+				} else if (errno == EAGAIN || errno == EINTR)
+					continue;
+				else
 					errx(1, "Failed to read from %s: %s%s",
 					    argc == 0 || strcmp(argv[f_no], "-") == 0 ? "stdin" : argv[f_no],
 					    strerror(errno),
@@ -228,10 +234,22 @@ main(int argc, char **argv)
 	}
 
 	/* Write out data */
-	/* XXX Elevator algorithm? */
-	for (i = 0; i < rec_no && (nrecords == 0 || i < nrecords); i++)
-		if ((errstr = rec_write_offset(f[rec[i].f_no], rec[i].offset, rec[i].len, i == last[rec[i].f_no], output_str, stdout)) != NULL)
-			errx(1, "%s", errstr);
+	for (i = 0; i < MIN(rec_no, nrecords); i++) {
+		if (got_siginfo) {
+			got_siginfo = 0;
+			fprintf(stderr, "Writing record %u/%" PRIuFAST32 "\n",
+			    i + 1,
+			    MIN(rec_no, nrecords));
+		}
+
+		if ((errstr = rec_write_offset(f[rec[i].f_no], rec[i].offset, rec[i].len, i == last[rec[i].f_no], output_str, stdout)) != NULL) {
+			if (errno == EAGAIN || errno == EINTR) {
+				i--;
+				continue;
+			} else
+				errx(1, "%s", errstr);
+		}
+	}
 
 	for (i = 0; i < argc; i++) {
 		fd = rec_fd(f[i]);

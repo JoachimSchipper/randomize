@@ -104,7 +104,8 @@ rec_open(int fd, pcre *re, pcre_extra *re_extra)
 #endif
 		fstat(f->fd, &sb);
 	assert(rv == 0);
-	if (!S_ISREG(sb.st_mode) && !S_ISCHR(sb.st_mode) && !S_ISBLK(sb.st_mode)) {
+	/* XXX Is there a way to check for "seek works in a sane fashion"? */
+	if (!S_ISREG(sb.st_mode)) {
 		/* XXX Document the use of TMPDIR */
 		if ((prefix = getenv("TMPDIR")) == NULL || prefix[0] == '\0')
 			prefix = "/tmp";
@@ -314,7 +315,7 @@ err:
 const char *
 rec_write_offset(struct rec_file *f, off_t offset, int len, int last, const char *delim, FILE *file)
 {
-	int		 i;
+	off_t		 i;
 	ssize_t		 nbytes;
 
 	/*

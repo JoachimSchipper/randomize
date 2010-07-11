@@ -443,6 +443,16 @@ output_match:
 		case SEEN_BACKSLASH:
 			value = 0;
 			switch (delim[i]) {
+			case '&':
+				if (putc('&', file) == EOF)
+					goto err_char;
+				state = NORMAL;
+				break;
+			case '\\':
+				if (putc('\\', file) == EOF)
+					goto err_char;
+				state = NORMAL;
+				break;
 			case 'a':
 				if (putc('\a', file) == EOF)
 					goto err_char;

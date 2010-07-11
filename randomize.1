@@ -1,5 +1,5 @@
 .\"
-.\" Copyright (c) 2009 Joachim Schipper <joachim@joachimschipper.nl>
+.\" Copyright (c) 2009, 2010 Joachim Schipper <joachim@joachimschipper.nl>
 .\"
 .\" Permission to use, copy, modify, and distribute this software for any
 .\" purpose with or without fee is hereby granted, provided that the above
@@ -13,7 +13,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd November 2, 2009
+.Dd July 11, 2010
 .\" To fix
 .Dt RANDOMIZE 1 LOCAL
 .Os \&
@@ -22,114 +22,94 @@
 .Nd print records in a random order
 .Sh SYNOPSIS
 .Nm randomize
-.\" troff only takes 9 arguments, so the single-line equivalent fails
-.Oo
-.Fl i Ar str
-.Op Fl i Ar str ...
-.Oc
+.Op Fl e Ar regex
 .Op Fl o Ar str
+.Op Fl n Ar number
 .Op Ar
-.Br
-.Nm randomize
-(
-.Fl a | e
-)
-.Op Fl o Ar str
-.Op arg ...
 .Sh DESCRIPTION
 The
 .Nm
-utility operates in either of two modes.
-By default, it treats its arguments as the names of files and reads delimited records (by default, lines) from these files. If
+utility reads records delimited by
+.Ar regex
+from the
 .Ar file
-is
+operands.
+If no operands are given, or an argument of
 .Ql -
-or there are no file arguments,
+is given,
 .Nm
-reads from the standard input. If given the
-.Fl a
-or
-.Fl e
-flag, the arguments are instead treated as records. In either case, 
-.Nm
-prints the records to the standard output in a random order, with a newline after each record (by default; see
-.Fl o ) .
-.Pp
-Several options refer to escape sequences; all escape sequences defined by the C language are accepted. In particular,
-.Ql \en
-is a newline,
-.Ql \e0
-is a NUL character and
-.Ql \exf2
-is a byte with hexadecimal value 0xf2 (decimal value 242).
+reads from standard input.
+These records are randomly permuted and written to the standard output, delimited by
+.Ar str .
 .Pp
 The options are as defined below:
 .Bl -tag -width Fl
-.It Fl a
-Treat the arguments as records (instead of filenames).
-.It Fl e
-Like
-.Fl a ,
-but additionally process escape sequences in
-.Bk -words
-.Ar arg ... .
-.Ek
-.It Fl i Ar str
-Treat the arguments as files to read records from and add
-.Ar str
-to the list of delimiters.
-A record is terminated by the longest first matching delimiter and does not include the delimiter itself.
-Escape sequences in
-.Ar str
-are processed.
-If no
-.Fl i
-flags are given, there is exactly one record delimiter,
-.Ql \en
-(i.e. newline).
+.It Fl e Ar regex
+Set the regular expression used to delimit records in the input (the default is 
+.Dq \en ) .
+.Ar regex
+is a Perl-compatible regular expression, with the options
+.Sq (?s)(?m)(?X)
+set (i.e. a dot matches NUL characters).
+See
+.Xr pcresyntax 3 .
 .It Fl o Ar str
-Write
+Set the string used to delimit records in the output (the default is
+.Dq \en ) .
+Certain character sequences in
 .Ar str
-after each record. Escape sequences in
-.Ar str
-are processed.
+are handled specially: 
+.Ql &
+is replaced by the text matched by
+.Ar regex ,
+and
+.Ql \e# ,
+where # is a digit from 1 to 9, is replaced by the string matched by the subpattern (see
+.Xr pcrepattern 3 ) .
+C-style escape sequences and character constants are accepted (e.g.
+.Ql \en ,
+.Ql \ex0a ,
+.Ql \e012 ) .
+The character sequences
+.Ql \e\e
+and
+.Ql \e&
+output a literal backslash respectively ampersand.
+All other backslash-initiated character sequences are reserved for future expansion.
+.It Fl n Ar number
+Output
+.Ar number
+records (or all records, if less).
 .El
 .Pp
-It is not an error to specify more than one of the mutually exclusive options 
-.Fl a, e
-and
-.Fl i .
-Where more than one of these options is specified, the last option given overrides the others.
-.Pp
 .Ex -std randomize
+.Sh ENVIRONMENT
+.Bl -tag -width TMPDIR
+.It Ev TMPDIR
+.Nm
+may use one or more temporary files.
+If the
+.Ev TMPDIR
+variable is set, this file is created in this directory.
+Otherwise,
+.Pa /tmp
+is used.
+.El
 .Sh EXAMPLES
 Print lines read from the standard input to the standard output, in random order:
 .Pp
 .Dl $ randomize
 .Pp
-Read all words (delimited by space, a DOS line ending, or a UNIX line ending) from
-.Ar file1
-and
-.Ar file2
-and print them to the standard output, with spaces between the words:
+Read all words from file1 and file2 and print them to the standard output, each word on its own line:
 .Pp
-.Dl "$ randomize -i ' ' -i '\er\en' -i '\en' -o ' ' file1 file2"
+.Dl "$ randomize -e '[ \en]+' file1 file2"
 .Pp
 Concatenate files in random order:
 .Pp
-.Dl "$ find . -type f -print0 | randomize -i '\e0' -o '\e0' | xargs -0 cat"
-.Pp
-Test a program expecting binary input:
-.Pp
-.Dl "$ randomize -o '' -e '\e0' '\ex3c' '\ex10\e10' | uuencode"
+.Dl "$ find . -type f -print0 | randomize -e '\e0' -o '&' | xargs -0 cat"
 .Pp
 .Sh SEE ALSO
 .Xr fortune 6 ,
-.Xr random 6 ,
-.Xr ascii 7
+.Xr random 6
 .Sh AUTHORS
 .An Joachim Schipper Aq joachim@joachimschipper.nl
-.Sh CAVEATS
-The current version of
-.Nm
-reads all input files into memory, which is not desirable for large files.

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009 Joachim Schipper <joachim@joachimschipper.nl>
+ * Copyright (c) 2009, 2010 Joachim Schipper <joachim@joachimschipper.nl>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -121,7 +121,7 @@ main(int argc, char **argv)
 
 	/* Defaults */
 	re_str = "\n";
-	output_str = "&";
+	output_str = "\n";
 	nrecords = UINT32_MAX;
 
 	while ((ch = getopt(argc, argv, "e:n:o:")) != -1) {

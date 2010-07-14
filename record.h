@@ -49,7 +49,8 @@ int rec_next(struct rec_file *f, off_t *offset, char **p) __attribute__((nonnull
  * Write record to FILE *. Calling rec_next() after rec_write_*() causes
  * undefined behaviour.
  *
- * Set last to non-zero if this is the last record. delim XXX
+ * Set last to non-zero if this is the last record. delim can contain escape
+ * sequences, as described in the man page (for the -o option).
  *
  * Returns NULL on success; otherwise, returns an error message and sets errno
  * as for putc(3), fwrite(3), or (for rec_write_offset) read(2). Where

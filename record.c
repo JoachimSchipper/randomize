@@ -106,7 +106,6 @@ rec_open(int fd, pcre *re, pcre_extra *re_extra)
 	assert(rv == 0);
 	/* XXX Is there a way to check for "seek works in a sane fashion"? */
 	if (!S_ISREG(sb.st_mode)) {
-		/* XXX Document the use of TMPDIR */
 		if ((prefix = getenv("TMPDIR")) == NULL || prefix[0] == '\0')
 			prefix = "/tmp";
 		for (prefix_len = MIN(strlen(prefix), INT_MAX); prefix_len > 0 && prefix[prefix_len - 1] == '/'; prefix_len--);

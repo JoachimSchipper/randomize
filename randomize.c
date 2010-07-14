@@ -49,7 +49,6 @@ static void handle_siginfo(int sig);
 
 int main(int argc, char **argv);
 
-/* XXX const char *usage = "randomize [-o str] [-i str [-i str ...]] [file ...]\nrandomize [-o str] (-a | -e) [arg ...]\n"; */
 const char *usage = "randomize [-e regex] [-o str] [-n number] [file [file ...]]\n";
 
 #ifdef HAVE_ARC4RANDOM
@@ -147,7 +146,6 @@ main(int argc, char **argv)
 	argc -= optind;
 	argv += optind;
 
-	/* XXX Document options */
 	/* XXX Do we need to call maketables()? */
 	if ((re = pcre_compile(re_str, PCRE_DOTALL | PCRE_EXTRA | PCRE_MULTILINE, &errstr, &error_offset, NULL)) == NULL)
 		errx(1, "Failed to parse regular expression %s: %s at %d", re_str, errstr, error_offset);

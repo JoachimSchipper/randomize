@@ -1,8 +1,14 @@
 .PHONY: all clean lint test
 
-# Define HAVE_ARC4RANDOM on platforms that have arc4random for better
-# performance. Define HAVE_SIGINFO on platforms that support SIGINFO to enable
-# printing data on the console on receipt of SIGINFO.
+# Define HAVE_ARC4RANDOM on platforms that have arc4random_uniform() to obtain fast and
+# decent random numbers.
+#
+# Define HAVE_SRANDOMDEV for platforms that have srandomdev() to obtain
+# semi-decent random numbers via random(3). (The arc4random_uniform() interface
+# is preferred if available.)
+#
+# Define HAVE_SIGINFO on platforms that support SIGINFO to enable printing data
+# on the console on receipt of SIGINFO.
 DEFINES=-DHAVE_ARC4RANDOM -DHAVE_SIGINFO
 # Warns on pretty much everything, except two conditions (signed compare and
 # unused parameters) that are not necessarily errors. Lint catches those, and

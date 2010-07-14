@@ -18,6 +18,12 @@
  * Various randomization algorithms.
  */
 
+#ifndef HAVE_ARC4RANDOM
+#ifndef HAVE_SRANDOMDEV
+#include <sys/types.h>
+#endif
+#endif
+
 #include <assert.h>
 #include <err.h>
 #include <errno.h>
@@ -29,6 +35,11 @@
 #endif
 #include <stdio.h>
 #include <string.h>
+#ifndef HAVE_ARC4RANDOM
+#ifndef HAVE_SRANDOMDEV
+#include <time.h>
+#endif
+#endif
 #include <unistd.h>
 
 #include <pcre.h>
@@ -55,18 +66,63 @@ const char *usage = "randomize [-e regex] [-o str] [-n number] [file [file ...]]
 #define random_uniform(max) arc4random_uniform(max)
 #else
 /*
- * Return a random number chosen uniformly from 0, 1, ..., max - 1.
+ * Return a random number chosen uniformly from 0, 1, ..., max - 1. This
+ * function (only) is derived from OpenBSD's arc4random_uniform().
  */
-/* XXX Does this work at all? */
 uint32_t random_uniform(uint32_t max);
-uint32_t
-random_uniform(uint32_t max)
+
+/*	$OpenBSD: arc4random.c,v 1.21 2009/12/15 18:19:06 guenther Exp $	*/
+
+/*
+ * Copyright (c) 1996, David Mazieres <dm@uun.org>
+ * Copyright (c) 2008, Damien Miller <djm@openbsd.org>
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+
+u_int32_t
+random_uniform(u_int32_t upper_bound)
 {
-	uint32_t	 r;
+	u_int32_t r, min;
 
-	while ((r = random()) > UINT32_MAX - UINT32_MAX % max);
+	if (upper_bound < 2)
+		return 0;
 
-	return r % max;
+#if (ULONG_MAX > 0xffffffffUL)
+	min = 0x100000000UL % upper_bound;
+#else
+	/* Calculate (2**32 % upper_bound) avoiding 64-bit math */
+	if (upper_bound > 0x80000000)
+		min = 1 + ~upper_bound;		/* 2**32 - upper_bound */
+	else {
+		/* (2**32 - (x * 2)) % x == 2**32 % x when x <= 2**31 */
+		min = ((0xffffffff - (upper_bound * 2)) + 1) % upper_bound;
+	}
+#endif
+
+	/*
+	 * This could theoretically loop forever but each retry has
+	 * p > 0.5 (worst case, usually far better) of selecting a
+	 * number inside the range we need, so it should rarely need
+	 * to re-roll.
+	 */
+	for (;;) {
+		r = random();
+		if (r >= min)
+			break;
+	}
+
+	return r % upper_bound;
 }
 #endif
 
@@ -112,6 +168,15 @@ main(int argc, char **argv)
 	sigaction(SIGINFO, &act, NULL);
 
 	/* XXX Do we also need to unbuffer stdin? */
+#endif
+#ifndef HAVE_ARC4RANDOM
+#ifdef HAVE_SRANDOMDEV
+	/* Initialize random number generator */
+	srandomdev();
+#else
+	/* ...badly... */
+	srandom((unsigned int) getpid() ^ (unsigned int) time(NULL));
+#endif
 #endif
 
 	re = NULL;

@@ -26,11 +26,11 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
-#include <vis.h> /* XXX Portability */
 
 #include <pcre.h>
 
-#include "record.h"
+#include "compat.h"
+#include "record.h" /* vis.h */
 
 #ifndef MIN
 #define MIN(x, y) ((x) < (y) ? (x) : (y))

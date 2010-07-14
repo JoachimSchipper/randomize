@@ -9,7 +9,10 @@
 #
 # Define HAVE_SIGINFO on platforms that support SIGINFO to enable printing data
 # on the console on receipt of SIGINFO.
-DEFINES=-DHAVE_ARC4RANDOM -DHAVE_SIGINFO
+#
+# Define HAVE_VIS on platforms that have a vis(3) routine; otherwise, a
+# replacement is used.
+DEFINES=-DHAVE_ARC4RANDOM -DHAVE_SRANDOMDEV -DHAVE_SIGINFO -DHAVE_VIS
 # Warns on pretty much everything, except two conditions (signed compare and
 # unused parameters) that are not necessarily errors. Lint catches those, and
 # we can suppress lints warnings.
@@ -20,7 +23,7 @@ DEFINES=-DHAVE_ARC4RANDOM -DHAVE_SIGINFO
 CFLAGS=-std=c99 -pedantic -W -Wall -Wno-sign-compare -Wno-unused-parameter -Wbad-function-cast -Wcast-align -Wchar-subscripts -Wfloat-equal -Wmissing-declarations -Wmissing-format-attribute -Wmissing-noreturn -Wmissing-prototypes -Wnested-externs -Wpointer-arith -Wredundant-decls -Wshadow -Wstrict-prototypes -Wwrite-strings -Wundef -Werror -g -O2 -I/usr/local/include ${DEFINES}
 LDFLAGS=-L/usr/local/lib -lpcre
 LINT=lint -ceFHrx -DLINT ${DEFINES}
-OBJS=record.o randomize.o
+OBJS=compat.o record.o randomize.o
 
 all: randomize randomize.cat1
 
@@ -52,7 +55,7 @@ test: randomize test/1.in test/1.out test/2a.in test/2b.in test/2c.in test/2.out
 			diff -u test/4.out test/4.result || exit 1;\
 	done
 
-${OBJS}: record.h
+${OBJS}: compat.h record.h
 
 randomize.cat1: randomize.1
 	groff -Tascii -mandoc randomize.1 > randomize.cat1

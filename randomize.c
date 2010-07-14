@@ -44,7 +44,8 @@
 
 #include <pcre.h>
 
-#include "record.h"
+#include "compat.h"
+#include "record.h" /* random_uniform() */
 
 #ifndef MIN
 #define MIN(x, y) ((x) < (y) ? (x) : (y))
@@ -61,70 +62,6 @@ static void handle_siginfo(int sig);
 int main(int argc, char **argv);
 
 const char *usage = "randomize [-e regex] [-o str] [-n number] [file [file ...]]\n";
-
-#ifdef HAVE_ARC4RANDOM
-#define random_uniform(max) arc4random_uniform(max)
-#else
-/*
- * Return a random number chosen uniformly from 0, 1, ..., max - 1. This
- * function (only) is derived from OpenBSD's arc4random_uniform().
- */
-uint32_t random_uniform(uint32_t max);
-
-/*	$OpenBSD: arc4random.c,v 1.21 2009/12/15 18:19:06 guenther Exp $	*/
-
-/*
- * Copyright (c) 1996, David Mazieres <dm@uun.org>
- * Copyright (c) 2008, Damien Miller <djm@openbsd.org>
- *
- * Permission to use, copy, modify, and distribute this software for any
- * purpose with or without fee is hereby granted, provided that the above
- * copyright notice and this permission notice appear in all copies.
- *
- * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
- * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
- * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
- * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
- * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
- * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
- * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
- */
-
-u_int32_t
-random_uniform(u_int32_t upper_bound)
-{
-	u_int32_t r, min;
-
-	if (upper_bound < 2)
-		return 0;
-
-#if (ULONG_MAX > 0xffffffffUL)
-	min = 0x100000000UL % upper_bound;
-#else
-	/* Calculate (2**32 % upper_bound) avoiding 64-bit math */
-	if (upper_bound > 0x80000000)
-		min = 1 + ~upper_bound;		/* 2**32 - upper_bound */
-	else {
-		/* (2**32 - (x * 2)) % x == 2**32 % x when x <= 2**31 */
-		min = ((0xffffffff - (upper_bound * 2)) + 1) % upper_bound;
-	}
-#endif
-
-	/*
-	 * This could theoretically loop forever but each retry has
-	 * p > 0.5 (worst case, usually far better) of selecting a
-	 * number inside the range we need, so it should rarely need
-	 * to re-roll.
-	 */
-	for (;;) {
-		r = random();
-		if (r >= min)
-			break;
-	}
-
-	return r % upper_bound;
-}
-#endif
 
 #ifdef HAVE_SIGINFO
 static void
@@ -243,6 +180,7 @@ main(int argc, char **argv)
 			err(1, "Failed to rec_open %s", strcmp(argv[f_no], "-") == 0 ? "stdin" : argv[f_no]);
 
 		while (1) {
+#ifdef HAVE_SIGINFO
 			if (got_siginfo) {
 				got_siginfo = 0;
 				fprintf(stderr, "Reading %s: read %" PRIuFAST32 " records (in total)\n",
@@ -250,6 +188,7 @@ main(int argc, char **argv)
 				    rec_no);
 				fflush(stderr);
 			}
+#endif
 
 			/*
 			 * Loop invariant: rec_no is the number of the current
@@ -298,12 +237,14 @@ main(int argc, char **argv)
 
 	/* Write out data */
 	for (i = 0; i < MIN(rec_no, nrecords); i++) {
+#ifdef HAVE_SIGINFO
 		if (got_siginfo) {
 			got_siginfo = 0;
 			fprintf(stderr, "Writing record %u/%" PRIuFAST32 "\n",
 			    i + 1,
 			    MIN(rec_no, nrecords));
 		}
+#endif
 
 		if ((errstr = rec_write_offset(f[rec[i].f_no], rec[i].offset, rec[i].len, i == last[rec[i].f_no], output_str, stdout)) != NULL) {
 			if (errno == EAGAIN || errno == EINTR) {

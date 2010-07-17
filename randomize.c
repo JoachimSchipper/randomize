@@ -228,7 +228,8 @@ main(int argc, char **argv)
 					    errno == EINVAL ? " or error in regular expression" : "");
 			}
 
-			assert(rec[r].len > 0);
+			if (rec[r].len == 0)
+				errx(1, "Regular expression matched a zero-length record");
 			last[f_no] = r;
 			if (++rec_no == UINT32_MAX - 1)
 				errx(1, "Too many records");

@@ -35,6 +35,9 @@
 #ifndef MIN
 #define MIN(x, y) ((x) < (y) ? (x) : (y))
 #endif
+#ifndef MAX
+#define MAX(x, y) ((x) < (y) ? (x) : (y))
+#endif
 
 struct rec_file {
 	char		*buf_p;
@@ -229,7 +232,6 @@ rec_next(struct rec_file *f, off_t *offset, char **p)
 		/*
 		 * Get more data
 		 */
-
 		assert(f->buf_last >= f->buf_first);
 		assert(f->buf_size >= f->buf_last);
 
@@ -250,7 +252,7 @@ rec_next(struct rec_file *f, off_t *offset, char **p)
 			assert(i == f->buf_first);
 		}
 
-		if (f->buf_first > f->buf_size / 2) {
+		if (f->buf_size - (f->buf_last - f->buf_first) >= MAX(f->buf_size / 4, BUFSIZ)) {
 			/* Just move unprocessed data to front */
 			bcopy(&f->buf_p[f->buf_first], f->buf_p, f->buf_last - f->buf_first);
 		} else {

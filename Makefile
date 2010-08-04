@@ -20,7 +20,8 @@ DEFINES=-DHAVE_ARC4RANDOM -DHAVE_SRANDOMDEV -DHAVE_SIGINFO -DHAVE_VIS
 # -Wpadded or the OpenBSD extension -Wlarger-than-X may occasionally be useful
 #  as well. -Wcast-qual may give useful warnings, but those are duplicated by
 #  lint.
-CFLAGS=-std=c99 -pedantic -W -Wall -Wno-sign-compare -Wno-unused-parameter -Wbad-function-cast -Wcast-align -Wchar-subscripts -Wfloat-equal -Wmissing-declarations -Wmissing-format-attribute -Wmissing-noreturn -Wmissing-prototypes -Wnested-externs -Wpointer-arith -Wredundant-decls -Wshadow -Wstrict-prototypes -Wwrite-strings -Wundef -Werror -g -O2 -I/usr/local/include ${DEFINES}
+CFLAGS=-std=c99 -pedantic -W -Wall -Wno-sign-compare -Wno-unused-parameter -Wbad-function-cast -Wcast-align -Wchar-subscripts -Wfloat-equal -Wmissing-declarations -Wmissing-format-attribute -Wmissing-noreturn -Wmissing-prototypes -Wnested-externs -Wpointer-arith -Wshadow -Wstrict-prototypes -Wwrite-strings -Wundef -Werror -g -O2 -I/usr/local/include ${DEFINES}
+# -Wredundant-decls
 LDFLAGS=-L/usr/local/lib -lpcre
 LINT=lint -ceFHrx -DLINT ${DEFINES}
 OBJS=compat.o record.o randomize.o
@@ -28,7 +29,7 @@ OBJS=compat.o record.o randomize.o
 all: randomize randomize.cat1
 
 clean:
-	rm -f randomize randomize.cat1 ${OBJS} test/{1,2a,2b,2c,3,4}.result
+	rm -f randomize randomize.cat1 ${OBJS} test/{1,2,3,4,5}.result
 
 lint:
 	${LINT} ${OBJS}
@@ -36,23 +37,26 @@ lint:
 randomize: ${OBJS}
 	${CC} ${CFLAGS} ${LDFLAGS} -o randomize ${OBJS}
 
-test: randomize test/1.in test/1.out test/2a.in test/2b.in test/2c.in test/2.out test/3.in test/3.out test/4.in test/4.out
+test: randomize test/1.in test/1.out test/2.in test/2.out test/3a.in test/3b.in test/3c.in test/3.out test/4.in test/4.out test/5.in test/5.out
 	# Basic functionality, reading from pipe
 	cat test/1.in | ./randomize | sort > test/1.result &&\
 		diff -u test/1.out test/1.result
-	# Multiple files
-	./randomize test/2a.in test/2b.in test/2c.in | sort > test/2.result &&\
+	# Long lines
+	cat test/2.in | ./randomize | sort > test/2.result &&\
 		diff -u test/2.out test/2.result
-	# Regular expression support
-	./randomize -e '(.*?)([ \t])' -o '\0\x0\2\1\n' test/3.in | sort > test/3.result &&\
+	# Multiple files
+	./randomize test/3a.in test/3b.in test/3c.in | sort > test/3.result &&\
 		diff -u test/3.out test/3.result
+	# Regular expression support
+	./randomize -e '(.*?)([ \t])' -o '\0\x0\2\1\n' test/4.in | sort > test/4.result &&\
+		diff -u test/4.out test/4.result
 	# Requesting a few lines
 	for i in 1 2 3;\
-		do ./randomize -n $$i test/4.in >/dev/null || exit 1;\
+		do ./randomize -n $$i test/5.in >/dev/null || exit 1;\
 	done
 	for i in 4 5 6 10000;\
-		do ./randomize -n $$i test/4.in | sort > test/4.result &&\
-			diff -u test/4.out test/4.result || exit 1;\
+		do ./randomize -n $$i test/5.in | sort > test/5.result &&\
+			diff -u test/5.out test/5.result || exit 1;\
 	done
 
 ${OBJS}: compat.h record.h

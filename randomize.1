@@ -22,28 +22,35 @@
 .Nd print records in a random order
 .Sh SYNOPSIS
 .Nm randomize
-.Op Fl e Ar regex
+.Op Fl a | e Ar regex
 .Op Fl o Ar str
 .Op Fl n Ar number
-.Op Ar
+.Op Ar arg ...
 .Sh DESCRIPTION
 The
 .Nm
 utility reads records delimited by
 .Ar regex
 from the
-.Ar file
+.Ar arg
 operands.
-If no operands are given, or an argument of
+These records are randomly permuted and written to the standard output, delimited by
+.Ar str .
+.Pp
+If no operands are given, or an operand of
 .Ql -
 is given,
 .Nm
 reads from standard input.
-These records are randomly permuted and written to the standard output, delimited by
+If the
+.Fl a
+flag is given, the operands themselves are randomly permuted and written to the standard output, delimited by
 .Ar str .
 .Pp
 The options are as defined below:
 .Bl -tag -width Fl
+.It Fl a
+Treat the operands as records.
 .It Fl e Ar regex
 Set the regular expression used to delimit records in the input (the default is 
 .Dq \en ) .
@@ -104,12 +111,13 @@ Read all words from file1 and file2 and print them to the standard output, each 
 .Pp
 .Dl "$ randomize -e '[ \en]+' file1 file2"
 .Pp
-Concatenate files in random order:
+Play files in a random order (``shuffle''):
 .Pp
-.Dl "$ find . -type f -print0 | randomize -e '\e0' -o '&' | xargs -0 cat"
+.Dl "$ randomize -ao '\e0' *.raw | xargs -0r aucat"
 .Pp
 .Sh SEE ALSO
 .Xr fortune 6 ,
-.Xr random 6
+.Xr random 6 ,
+.Xr xargs 1
 .Sh AUTHORS
 .An Joachim Schipper Aq joachim@joachimschipper.nl

@@ -38,11 +38,15 @@ randomize: ${OBJS}
 	${CC} ${CFLAGS} ${LDFLAGS} -o randomize ${OBJS}
 
 test: randomize test/1.in test/1.out test/2.in test/2.out test/3a.in test/3b.in test/3c.in test/3.out test/4.in test/4.out test/5.in test/5.out
-	# Basic functionality, reading from pipe
+	# Basic functionality
+	./randomize test/1.in | sort > test/1.result &&\
+		diff -u test/1.out test/1.result
 	cat test/1.in | ./randomize | sort > test/1.result &&\
 		diff -u test/1.out test/1.result
+	./randomize -e 'ignored' -o '\n' -an 10 `cat test/1.in` | sort > test/1.result &&\
+		diff -u test/1.out test/1.result
 	# Long lines
-	cat test/2.in | ./randomize | sort > test/2.result &&\
+	./randomize test/2.in | sort > test/2.result &&\
 		diff -u test/2.out test/2.result
 	# Multiple files
 	./randomize test/3a.in test/3b.in test/3c.in | sort > test/3.result &&\

@@ -45,8 +45,11 @@
 #include <pcre.h>
 
 #include "compat.h"
-#include "record.h" /* random_uniform() */
+#include "record.h"
 
+#ifndef __GNUC__
+#define __attribute__(x) /* Not supported by non-GCC compilers */
+#endif
 #ifndef MIN
 #define MIN(x, y) ((x) < (y) ? (x) : (y))
 #endif
@@ -61,7 +64,14 @@ static void handle_siginfo(int sig);
 
 int main(int argc, char **argv);
 
-const char *usage = "randomize [-e regex] [-o str] [-n number] [file [file ...]]\n";
+static void usage(void) __attribute__((noreturn));
+
+static void
+usage(void)
+{
+	fprintf(stderr, "randomize [-a | -e regex] [-o str] [-n number] [arg [arg ...]]\n");
+	exit(127);
+}
 
 #ifdef HAVE_SIGINFO
 static void
@@ -78,7 +88,7 @@ main(int argc, char **argv)
 {
 	const char	*re_str, *output_str, *errstr;
 	char		 ch;
-	int		 fd, error_offset, rv;
+	int		 fd, error_offset, rv, j;
 	unsigned int	 f_no, i;
 	uint_fast32_t	 r, nrecords, rec_size, rec_no, *last;
 	struct rec_file
@@ -103,8 +113,6 @@ main(int argc, char **argv)
 	act.sa_mask = 0;
 
 	sigaction(SIGINFO, &act, NULL);
-
-	/* XXX Do we also need to unbuffer stdin? */
 #endif
 #ifndef HAVE_ARC4RANDOM
 #ifdef HAVE_SRANDOMDEV
@@ -125,8 +133,11 @@ main(int argc, char **argv)
 	output_str = "\n";
 	nrecords = UINT32_MAX;
 
-	while ((ch = getopt(argc, argv, "e:n:o:")) != -1) {
+	while ((ch = getopt(argc, argv, "ae:n:o:")) != -1) {
 		switch (ch) {
+		case 'a':
+			re_str = NULL;
+			break;
 		case 'e':
 			re_str = optarg;
 			break;
@@ -140,13 +151,32 @@ main(int argc, char **argv)
 			break;
 		default:
 			assert(ch == '?');
-			fprintf(stderr, "%s", usage);
-			exit(127);
+			usage();
 			/* NOTREACHED */
 		}
 	}
 	argc -= optind;
 	argv += optind;
+
+	if (re_str == NULL) {
+		/*
+		 * Skip the usual regex-based stuff and randomize the arguments
+		 * (instead of treating them as file names).
+		 */
+		j = argc;
+		while (j > (nrecords > argc ? 0 : argc - nrecords)) {
+			r = random_uniform(j);
+
+			if (printf("%s", argv[r]) == -1)
+				err(1, "Failed to print");
+			if ((errstr = rec_write_str(output_str, stdout)) != NULL)
+				errx(1, "%s", errstr);
+
+			argv[r] = argv[--j];
+		}
+
+		exit(0);
+	}
 
 	/* XXX Do we need to call maketables()? */
 	if ((re = pcre_compile(re_str, PCRE_DOTALL | PCRE_EXTRA | PCRE_MULTILINE, &errstr, &error_offset, NULL)) == NULL)

@@ -61,6 +61,12 @@ struct rec_file {
 static int    *ovector = NULL, ovector_size = 0;
 static size_t  ovector_refcount = 0;
 
+/* Used by the rec_write_*() functions */
+static char    errstr[128];
+
+/* Helper function for the rec_write_*() functions */
+static const char *rec_write_raw(const char *delim, const char *p, int ovector_valid, FILE *file) __attribute((nonnull(1, 4)));
+
 struct rec_file *
 rec_open(int fd, pcre *re, pcre_extra *re_extra)
 {
@@ -353,17 +359,8 @@ err:
 const char *
 rec_write_mem(struct rec_file *f, const char *p, int len, int last, const char *delim, FILE *file)
 {
-	int		 rv, i, value;
-	enum {
-		NORMAL,
-		SEEN_BACKSLASH,
-		SEEN_OCTAL1,
-		SEEN_OCTAL2,
-		SEEN_HEX0,
-		SEEN_HEX1
-	}		 state;
+	int		 ovector_valid;
 	ssize_t		 nbytes;
-	char		 tmp[5];
 #ifndef NDEBUG
 	int		 capturecount;
 
@@ -374,24 +371,48 @@ rec_write_mem(struct rec_file *f, const char *p, int len, int last, const char *
 
 	assert(len > 0);
 
-	if ((rv = pcre_exec(f->re, f->re_extra, p, len, 0, last ? 0 : PCRE_NOTEOL, ovector, ovector_size)) < 0) {
+	if ((ovector_valid = pcre_exec(f->re, f->re_extra, p, len, 0, last ? 0 : PCRE_NOTEOL, ovector, ovector_size)) < 0) {
 		/* Unterminated final record */
-		assert(rv == PCRE_ERROR_NOMATCH);
+		assert(ovector_valid == PCRE_ERROR_NOMATCH);
 		assert(last);
 
-		rv = 0;
+		ovector_valid = 0;
 		ovector[0] = ovector[1] = len;
 	} else {
-		assert(rv >= 1);
+		assert(ovector_valid >= 1);
 		assert(ovector[1] == len);
 	}
 
 	/* Output anything prior to match */
 	nbytes = fwrite(p, 1, ovector[0], file);
 	if (nbytes != ovector[0]) {
-		snprintf(f->buf_p, f->buf_size, "Failed to write output: %s", strerror(errno));
-		goto err;
+		snprintf(errstr, sizeof(errstr), "Failed to write output: %s", strerror(errno));
+		return errstr;
 	}
+
+	return rec_write_raw(delim, p, ovector_valid, file);
+}
+
+const char *
+rec_write_str(const char *str, FILE *file)
+{
+	return rec_write_raw(str, NULL, 0, file);
+}
+
+static const char *
+rec_write_raw(const char *delim, const char *p, int ovector_valid, FILE *file)
+{
+	int		 i, value;
+	ssize_t		 nbytes;
+	enum {
+		NORMAL,
+		SEEN_BACKSLASH,
+		SEEN_OCTAL1,
+		SEEN_OCTAL2,
+		SEEN_HEX0,
+		SEEN_HEX1
+	}		 state;
+	char		 tmp[5];
 
 	/* Output delim, handling backreferences and the like */
 	state = NORMAL;
@@ -410,23 +431,28 @@ rec_write_mem(struct rec_file *f, const char *p, int len, int last, const char *
 output_match:
 				assert(value >= 0);
 				assert(value <= 9);
-				if (value >= rv) {
-					if (rv == 0) {
+				if (value >= ovector_valid) {
+					if (ovector_valid == 0) {
 						if (value == 0)
-							snprintf(f->buf_p, f->buf_size, "The argument to -o contains & (by default), but the last record is not terminated");
+							snprintf(errstr, sizeof(errstr), "The argument to -o contains &, but ");
 						else
-							snprintf(f->buf_p, f->buf_size, "The argument to -o contains \\%d, but the last record is not terminated", value);
+							snprintf(errstr, sizeof(errstr), "The argument to -o contains \\%d, but ", value);
+
+						if (p != NULL)
+							strlcat(errstr, "the last argument is not terminated", sizeof(errstr));
+						else
+							strlcat(errstr, "you passed -a", sizeof(errstr));
 
 						goto err;
 					} else {
 						assert(value > 0);
-						snprintf(f->buf_p, f->buf_size, "Invalid backreference \\%d", value);
+						snprintf(errstr, sizeof(errstr), "Invalid backreference \\%d", value);
 						goto err;
 					}
 				}
 				nbytes = fwrite(&p[ovector[2 * value]], 1, ovector[2 * value + 1] - ovector[2 * value], file);
 				if (nbytes != ovector[2 * value + 1] - ovector[2 * value]) {
-					snprintf(f->buf_p, f->buf_size, "Failed to write match: %s", strerror(errno));
+					snprintf(errstr, sizeof(errstr), "Failed to write match: %s", strerror(errno));
 					goto err;
 				}
 
@@ -511,7 +537,7 @@ output_match:
 				goto output_match;
 			default:
 				vis(tmp, delim[i], VIS_CSTYLE | VIS_NOSLASH, ':');
-				snprintf(f->buf_p, f->buf_size, "Invalid escape sequence \\%s: reserved for future use", tmp);
+				snprintf(errstr, sizeof(errstr), "Invalid escape sequence \\%s: reserved for future use", tmp);
 				goto err;
 			}
 			break;
@@ -529,7 +555,7 @@ output_match:
 				i--;
 			} else {
 				vis(tmp, delim[i], VIS_CSTYLE, ':');
-				snprintf(f->buf_p, f->buf_size, "Invalid escape sequence \\x%s: expected a hex digit", tmp);
+				snprintf(errstr, sizeof(errstr), "Invalid escape sequence \\x%s: expected a hex digit", tmp);
 				goto err;
 			}
 
@@ -580,8 +606,8 @@ output_match:
 	return NULL;
 
 err_char:
-	snprintf(f->buf_p, f->buf_size, "Failed to write character: %s", strerror(errno));
+	snprintf(errstr, sizeof(errstr), "Failed to write character: %s", strerror(errno));
 
 err:
-	return f->buf_p;
+	return errstr;
 }

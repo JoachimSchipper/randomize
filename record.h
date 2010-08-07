@@ -60,6 +60,11 @@ const char *rec_write_offset(struct rec_file *f, off_t offset, int len, int last
 const char *rec_write_mem(struct rec_file *f, const char *p, int len, int last, const char *delim, FILE *file) __attribute__((nonnull(1, 2, 5, 6)));
 
 /*
+ * Write a string to FILE *, processing it as the 'delim' argument above.
+ */
+const char *rec_write_str(const char *str, FILE *file) __attribute__((nonnull(1, 2)));
+
+/*
  * Free all resources allocated by rec_open(). Note that this does not close
  * the file descriptor passed to rec_open().
  *

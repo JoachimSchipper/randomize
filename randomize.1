@@ -56,10 +56,10 @@ Set the regular expression used to delimit records in the input (the default is
 .Dq \en ) .
 .Ar regex
 is a Perl-compatible regular expression, with the options
-.Sq (?s)(?m)(?X)
+.Sq (?msX)
 set (i.e. a dot matches NUL characters).
 See
-.Xr pcresyntax 3 .
+.Xr pcrepattern 3 .
 .It Fl o Ar str
 Set the string used to delimit records in the output (the default is
 .Dq \en ) .
@@ -118,6 +118,7 @@ Play files in a random order (``shuffle''):
 .Sh SEE ALSO
 .Xr fortune 6 ,
 .Xr random 6 ,
-.Xr xargs 1
+.Xr xargs 1 ,
+.Xr pcregrep 1
 .Sh AUTHORS
 .An Joachim Schipper Aq joachim@joachimschipper.nl

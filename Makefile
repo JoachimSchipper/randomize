@@ -18,12 +18,12 @@ DEFINES=-DHAVE_ARC4RANDOM -DHAVE_SRANDOMDEV -DHAVE_SIGINFO -DHAVE_VIS
 # we can suppress lints warnings.
 #
 # -Wpadded or the OpenBSD extension -Wlarger-than-X may occasionally be useful
-#  as well. -Wcast-qual may give useful warnings, but those are duplicated by
-#  lint.
+# as well. -Wcast-qual may give useful warnings, but those are duplicated by
+# lint.
 CFLAGS=-std=c99 -pedantic -W -Wall -Wno-sign-compare -Wno-unused-parameter -Wbad-function-cast -Wcast-align -Wchar-subscripts -Wfloat-equal -Wmissing-declarations -Wmissing-format-attribute -Wmissing-noreturn -Wmissing-prototypes -Wnested-externs -Wpointer-arith -Wshadow -Wstrict-prototypes -Wwrite-strings -Wundef -Werror -g -O2 -I/usr/local/include ${DEFINES}
 # -Wredundant-decls
 LDFLAGS=-L/usr/local/lib -lpcre
-LINT=lint -ceFHrx -DLINT ${DEFINES}
+LINT=lint -ceFHrx -DLINT -I/usr/local/include -L/usr/local/lib -lpcre ${DEFINES}
 OBJS=compat.o record.o randomize.o
 
 all: randomize randomize.cat1
@@ -32,7 +32,7 @@ clean:
 	rm -f randomize randomize.cat1 ${OBJS} test/{1,2,3,4,5}.result
 
 lint:
-	${LINT} ${OBJS}
+	${LINT} ${OBJS:.o=.c}
 
 randomize: ${OBJS}
 	${CC} ${CFLAGS} ${LDFLAGS} -o randomize ${OBJS}

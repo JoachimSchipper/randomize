@@ -48,7 +48,9 @@
 #include "record.h"
 
 #ifndef __GNUC__
+#ifndef __attribute__
 #define __attribute__(x) /* Not supported by non-GCC compilers */
+#endif
 #endif
 #ifndef MIN
 #define MIN(x, y) ((x) < (y) ? (x) : (y))
@@ -87,16 +89,17 @@ int
 main(int argc, char **argv)
 {
 	const char	*re_str, *output_str, *errstr;
-	char		 ch;
-	int		 fd, error_offset, rv, j;
-	unsigned int	 f_no, i;
+	int		 ch, fd, error_offset, rv;
+	unsigned int	 f_no, i, j;
 	uint_fast32_t	 r, nrecords, rec_size, rec_no, *last;
 	struct rec_file
 		       **f;
 	void		*tmp;
 	struct {
 		off_t	 offset;
-		int	 len, f_no;
+		int	 len;
+		unsigned int
+			 f_no;
 	}		*rec;
 	pcre		*re;
 	pcre_extra	*re_extra;
@@ -142,6 +145,7 @@ main(int argc, char **argv)
 			re_str = optarg;
 			break;
 		case 'n':
+			/* LINTED conversion clearly works */
 			nrecords = strtonum(optarg, 1, UINT32_MAX - 1, &errstr);
 			if (errstr)
 				errx(1, "number of records is %s: %s", errstr, optarg);
@@ -163,7 +167,9 @@ main(int argc, char **argv)
 		 * Skip the usual regex-based stuff and randomize the arguments
 		 * (instead of treating them as file names).
 		 */
+		/* LINTED argc is nonnegative, so this works */
 		j = argc;
+		/* LINTED idem */
 		while (j > (nrecords > argc ? 0 : argc - nrecords)) {
 			r = random_uniform(j);
 
@@ -185,12 +191,15 @@ main(int argc, char **argv)
 	if (errstr != NULL)
 		errx(1, "Failed to study regular expression %s: %s", re_str, errstr);
 
+	;; /* LINTED argc is still nonnegative, so this still works */
 	if (argc > SIZE_MAX / MAX(sizeof(*f), sizeof(*last))) {
 		errno = ENOMEM;
 		err(1, "Failed to allocate memory for files and end-of-file markers");
 	}
+	;; /* LINTED as above */
 	if ((f = malloc((argc == 0 ? 1 : argc) * sizeof(*f))) == NULL)
 		err(1, "Failed to allocate memory for files");
+	;; /* LINTED as above */
 	if ((last = malloc((argc == 0 ? 1 : argc) * sizeof(*last))) == NULL)
 		err(1, "Failed to allocate memory for end-of-file markers");
 
@@ -198,6 +207,7 @@ main(int argc, char **argv)
 		err(1, "Failed to allocate memory for records");
 
 	rec_no = 0;
+	;; /* LINTED as above */
 	for (f_no = 0; f_no < 1 || f_no < argc; f_no++) {
 		/* Open file */
 		if (argc == 0 || strcmp(argv[f_no], "-") == 0)
@@ -286,6 +296,7 @@ main(int argc, char **argv)
 		}
 	}
 
+	;; /* LINTED argc is nonnegative, so this works */
 	for (i = 0; i < argc; i++) {
 		fd = rec_fd(f[i]);
 		while ((rv = rec_close(f[i])) != 0 && (errno == EINTR || errno == EAGAIN));

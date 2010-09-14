@@ -20,7 +20,9 @@
  */
 
 #ifndef __GNUC__
+#ifndef __attribute__
 #define __attribute__(x) /* Not supported by non-GCC compilers */
+#endif
 #endif
 
 /*

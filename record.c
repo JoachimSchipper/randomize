@@ -65,7 +65,7 @@ static size_t  ovector_refcount = 0;
 static char    errstr[128];
 
 /* Helper function for the rec_write_*() functions */
-static const char *rec_write_raw(const char *delim, const char *p, int ovector_valid, FILE *file) __attribute((nonnull(1, 4)));
+static const char *rec_write_raw(const char *delim, const char *p, int ovector_valid, FILE *file) __attribute__((nonnull(1, 4)));
 
 struct rec_file *
 rec_open(int fd, pcre *re, pcre_extra *re_extra)
@@ -84,6 +84,7 @@ rec_open(int fd, pcre *re, pcre_extra *re_extra)
 	template = NULL;
 	f = NULL;
 	if ((f = malloc(sizeof(*f))) == NULL ||
+	    /* LINTED conversion of 4096 to size_t is fine */
 	    (f->buf_p = malloc(f->buf_size = 4096)) == NULL)
 		goto err;
 
@@ -93,12 +94,15 @@ rec_open(int fd, pcre *re, pcre_extra *re_extra)
 	if (pcre_fullinfo(f->re = re, f->re_extra = re_extra, PCRE_INFO_CAPTURECOUNT, &capturecount) != 0)
 		goto err;
 
+	assert(capturecount >= 0);
 	/* Make sure that ovector is usable */
+	/* LINTED converting capturecount to unsigned works */
 	if (capturecount > INT_MAX / sizeof(*ovector) / 3 - 1) {
 		errno = ENOMEM;
 		goto err;
 	}
 	if ((capturecount + 1) * 3 > ovector_size) {
+		/* LINTED converting capturecount to unsigned works, again */
 		if ((tmp = realloc(ovector, (capturecount + 1) * 3 * sizeof(*ovector))) == NULL)
 			goto err;
 
@@ -117,6 +121,7 @@ rec_open(int fd, pcre *re, pcre_extra *re_extra)
 	if (!S_ISREG(sb.st_mode)) {
 		if ((prefix = getenv("TMPDIR")) == NULL || prefix[0] == '\0')
 			prefix = "/tmp";
+		;; /* LINTED conversion from strlen(prefix) to int is ok */
 		for (prefix_len = MIN(strlen(prefix), INT_MAX); prefix_len > 0 && prefix[prefix_len - 1] == '/'; prefix_len--);
 		if (asprintf(&template, "%.*s/randomize.XXXXXX", prefix_len, prefix) == -1)
 			goto err;
@@ -191,6 +196,7 @@ rec_next(struct rec_file *f, off_t *offset, char **p)
 	int		 capturecount;
 
 	assert(pcre_fullinfo(f->re, f->re_extra, PCRE_INFO_CAPTURECOUNT, &capturecount) == 0);
+	/* LINTED converting capturecount to unsigned works */
 	assert(capturecount <= SIZE_MAX / sizeof(*ovector) / 3 - 1);
 	assert((capturecount + 1) * 3 <= ovector_size);
 #endif
@@ -244,6 +250,7 @@ rec_next(struct rec_file *f, off_t *offset, char **p)
 		if (f->tmp != f->fd) {
 			/* Flush processed data to disk */
 			nbytes = 0;
+			/* LINTED converting (f->buf_first - i) to unsigned works */
 			for (i = 0; i < f->buf_first; nbytes = write(f->tmp, &f->buf_p[i], f->buf_first - i)) {
 				if (nbytes == -1) {
 					if (errno == EINTR || errno == EAGAIN)
@@ -253,6 +260,7 @@ rec_next(struct rec_file *f, off_t *offset, char **p)
 				}
 
 				assert(nbytes >= 0);
+				/* LINTED truncating nbytes works, since nbytes <= f->buf_first <= INT_MAX */
 				i += nbytes;
 			}
 			assert(i == f->buf_first);
@@ -260,6 +268,7 @@ rec_next(struct rec_file *f, off_t *offset, char **p)
 
 		if (f->buf_size - (f->buf_last - f->buf_first) >= MAX(f->buf_size / 4, BUFSIZ)) {
 			/* Just move unprocessed data to front */
+			/* LINTED f->buf_last - f->buf_first >= 0, so can be converted to size_t */
 			bcopy(&f->buf_p[f->buf_first], f->buf_p, f->buf_last - f->buf_first);
 		} else {
 			/* Enlarge buffer */
@@ -268,9 +277,11 @@ rec_next(struct rec_file *f, off_t *offset, char **p)
 				goto err;
 			}
 
+			;; /* LINTED f->buf_size * 2 fits in INT_MAX per above */
 			if ((tmp = malloc(f->buf_size * 2)) == NULL)
 				goto err;
 
+			;; /* LINTED f->buf_last - f->buf_first >= 0 as above */
 			memcpy(tmp, &f->buf_p[f->buf_first], f->buf_last - f->buf_first);
 
 			free(f->buf_p);
@@ -282,11 +293,13 @@ rec_next(struct rec_file *f, off_t *offset, char **p)
 		assert(f->buf_size > f->buf_last);
 
 		/* Read additional data */
+		/* LINTED f->buf_last - f->buf_first >= 0 as above */
 		while ((nbytes = read(f->fd, &f->buf_p[f->buf_last], f->buf_size - f->buf_last)) == -1 && (errno == EINTR || errno == EAGAIN));
 		if (nbytes == -1)
 			goto err;
 		if (nbytes == 0)
 			eof = 1;
+		;; /* LINTED nbytes <= f->buf_size <= INT_MAX, and no overflow can happen here */
 		f->buf_last += nbytes;
 	}
 
@@ -300,9 +313,11 @@ rec_next(struct rec_file *f, off_t *offset, char **p)
 		*offset = f->offset;
 
 	if (p != NULL) {
+		/* LINTED len >= 0, so can be converted to size_t */
 		if ((*p = malloc(len)) == NULL)
 			goto err;
 
+		;; /* LINTED len fits in an int since ovector[1] does */
 		memcpy(*p, &f->buf_p[f->buf_first], len);
 	}
 
@@ -322,8 +337,8 @@ err:
 const char *
 rec_write_offset(struct rec_file *f, off_t offset, int len, int last, const char *delim, FILE *file)
 {
-	off_t		 i;
-	ssize_t		 nbytes;
+	/* Limited by len anyway */
+	int		 i, nbytes;
 
 	/*
 	 * Read data into memory and call rec_write_mem()
@@ -335,8 +350,10 @@ rec_write_offset(struct rec_file *f, off_t offset, int len, int last, const char
 	nbytes = 0;
 	assert(f->buf_first == 0);
 	assert(f->buf_first == f->buf_last);
+	/* LINTED everything is limited to an int, so no problems here */
 	for (i = 0; i < len; nbytes = pread(f->tmp, &f->buf_p[i], len - i, offset + i)) {
 		if (nbytes == -1) {
+			/* LINTED f->buf_size >= 0, so can be converted to size_t */
 			snprintf(f->buf_p, f->buf_size, "Failed to read record from file: %s", strerror(errno));
 			goto err;
 		}
@@ -360,11 +377,12 @@ const char *
 rec_write_mem(struct rec_file *f, const char *p, int len, int last, const char *delim, FILE *file)
 {
 	int		 ovector_valid;
-	ssize_t		 nbytes;
+	size_t		 nbytes;
 #ifndef NDEBUG
 	int		 capturecount;
 
 	assert(pcre_fullinfo(f->re, f->re_extra, PCRE_INFO_CAPTURECOUNT, &capturecount) == 0);
+	/* LINTED capturecount is nonnegative, so comparing with unsigned works */
 	assert(capturecount <= SIZE_MAX / sizeof(*ovector) / 3 - 1);
 	assert((capturecount + 1) * 3 <= ovector_size);
 #endif
@@ -384,7 +402,9 @@ rec_write_mem(struct rec_file *f, const char *p, int len, int last, const char *
 	}
 
 	/* Output anything prior to match */
+	;; /* LINTED ovector[0] is nonnegative */
 	nbytes = fwrite(p, 1, ovector[0], file);
+	/* LINTED as above */
 	if (nbytes != ovector[0]) {
 		snprintf(errstr, sizeof(errstr), "Failed to write output: %s", strerror(errno));
 		return errstr;
@@ -402,8 +422,7 @@ rec_write_str(const char *str, FILE *file)
 static const char *
 rec_write_raw(const char *delim, const char *p, int ovector_valid, FILE *file)
 {
-	int		 i, value;
-	ssize_t		 nbytes;
+	int		 i, value, nbytes;
 	enum {
 		NORMAL,
 		SEEN_BACKSLASH,
@@ -417,6 +436,11 @@ rec_write_raw(const char *delim, const char *p, int ovector_valid, FILE *file)
 	/* Output delim, handling backreferences and the like */
 	state = NORMAL;
 	value = 0;
+	if (strlen(delim) >= INT_MAX) {
+		snprintf(errstr, sizeof(errstr), "Delimiting string too long: %zu", strlen(delim));
+		goto err;
+	}
+	;; /* LINTED 0 <= i <= strlen(delim) < INT_MAX, so works */
 	for (i = 0; i <= strlen(delim); i++) {
 		switch (state) {
 		case NORMAL:
@@ -450,6 +474,7 @@ output_match:
 						goto err;
 					}
 				}
+				;; /* LINTED the ovector[] - ovector[] expression is between 0 and INT_MAX, so ok */
 				nbytes = fwrite(&p[ovector[2 * value]], 1, ovector[2 * value + 1] - ovector[2 * value], file);
 				if (nbytes != ovector[2 * value + 1] - ovector[2 * value]) {
 					snprintf(errstr, sizeof(errstr), "Failed to write match: %s", strerror(errno));
@@ -462,6 +487,7 @@ output_match:
 				/* Ignore */
 				break;
 			default:
+				/* LINTED cast to unsigned somewhere in macro - should work */
 				if (putc(delim[i], file) == EOF)
 					goto err_char;
 				break;
@@ -562,6 +588,7 @@ output_match:
 			if (state == SEEN_HEX0)
 				state = SEEN_HEX1;
 			else {
+				/* LINTED cast to unsigned char somewhere in macro - should work */
 				if (putc(value, file) == EOF)
 					goto err_char;
 
@@ -591,6 +618,7 @@ output_match:
 			if (state == SEEN_OCTAL1)
 				state = SEEN_OCTAL2;
 			else {
+				/* LINTED cast to unsigned char somewhere in macro - should work */
 				if (putc(value, file) == EOF)
 					goto err_char;
 
@@ -601,6 +629,7 @@ output_match:
 		}
 	}
 
+	/* LINTED works per check above loop */
 	assert(i == strlen(delim) + 1);
 
 	return NULL;

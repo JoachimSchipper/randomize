@@ -237,6 +237,10 @@ main(int argc, char **argv)
 			 * distinct records from among all records we have
 			 * already seen.
 			 */
+			/*
+			 * XXX Consider keeping records in memory when passed
+			 * the -n option - it's *much* more efficient.
+			 */
 			if (MIN(rec_no, nrecords) >= rec_size) {
 				if (rec_size > MIN(UINT32_MAX / 2, SIZE_MAX / 2 / sizeof(*rec)))
 					err(1, "Too many records");

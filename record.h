@@ -25,57 +25,82 @@
 #endif
 #endif
 
+/* A record. For internal use only! */
+struct rec {
+	struct {
+		union {
+			off_t	 offset;
+			void	*p;
+		} loc;
+		int		 len, f_idx;
+	} internal_only;
+};
+
 /*
  * Open a file for reading records.
  *
- * Returns a new struct rec_file on success; otherwise, returns NULL and sets
- * errno as for malloc(3) or mkstemp(3).
+ * Up to *memory_cache bytes of records will be kept in memory (instead of
+ * spooled to disk) by rec_next(); malloc overhead will be estimated, but any
+ * buffers used by rec_fopen() will not be tracked.
+ *
+ * Returns the lowest unused record file descriptor ("rfd") on success;
+ * otherwise, returns -1 and sets errno as for malloc(3) or mkstemp(3).
  */
-struct rec_file;
-struct rec_file *rec_open(int fd, pcre *re, pcre_extra *re_extra) __attribute__((nonnull(2, 3), malloc));
+int rec_open(int fd, pcre *re, pcre_extra *re_extra, size_t *memory_cache) __attribute__((nonnull(2, 3)));
 
 /*
- * Get location of next record.
+ * Get next record.
  *
- * f and len must be non-NULL. If offset is non-NULL, it is set to the current
- * offset in the file; if p is on-NULL, it is pointed at a malloc()ed copy of
- * the record.
- *
- * Returns the size of the record on success; otherwise, returns -1 and sets
+ * Returns 0 on success and initializes rec; otherwise, returns -1 and sets
  * errno as for read(2), write(2), or malloc(3), or to 0 on EOF, or to EINVAL
  * if there was an error while processing the regular expression.
  */
-int rec_next(struct rec_file *f, off_t *offset, char **p) __attribute__((nonnull(1)));
+int rec_next(int rfd, struct rec *rec) __attribute__((nonnull(2)));
 
 /*
- * Write record to FILE *. Calling rec_next() after rec_write_*() causes
- * undefined behaviour.
+ * Write record to FILE *.
  *
- * Set last to non-zero if this is the last record. delim can contain escape
- * sequences, as described in the man page (for the -o option).
+ * delim is an output template that can contain escape sequences, as described
+ * in the man page (for the -o option).
  *
  * Returns NULL on success; otherwise, returns an error message and sets errno
- * as for putc(3), fwrite(3), or (for rec_write_offset) read(2). Where
- * appropriate, strerror(errno) is already incorporated in the error message.
+ * as for malloc(3), putc(3), fwrite(3), or read(2). Where appropriate,
+ * strerror(errno) is already incorporated in the error message.
  */
-const char *rec_write_offset(struct rec_file *f, off_t offset, int len, int last, const char *delim, FILE *file) __attribute__((nonnull(1, 5, 6)));
-const char *rec_write_mem(struct rec_file *f, const char *p, int len, int last, const char *delim, FILE *file) __attribute__((nonnull(1, 2, 5, 6)));
+const char *rec_write(const struct rec *rec, const char *delim, FILE *file) __attribute__((nonnull(1, 2, 3)));
 
 /*
  * Write a string to FILE *, processing it as the 'delim' argument above.
+ *
+ * The return values are as above. errno may be set as for putc(3) or
+ * fwrite(2).
  */
 const char *rec_write_str(const char *str, FILE *file) __attribute__((nonnull(1, 2)));
 
 /*
- * Free all resources allocated by rec_open(). Note that this does not close
- * the file descriptor passed to rec_open().
+ * Free all resources associated with rec (but not rec itself).
  *
- * Returns 0 on succcess; otherwise, returns -1 and sets errno as for close(2).
- * In the latter case, f is not altered.
+ * Does nothing if rec is NULL.
  */
-int rec_close(struct rec_file *f) __attribute__((nonnull(1)));
+void rec_free(struct rec *rec);
 
 /*
- * Return the file record originally used to open this rec_file.
+ * Free all resources allocated by rec_open(), including the file descriptor
+ * passed to rec_open(). This does not free() the memory_cache argument to
+ * rec_open().
+ *
+ * It is an error to call any rec_* function on a struct rec associated with
+ * this rfd afterwards.
+ *
+ * Returns 0 on succcess; otherwise, returns -1 and sets errno as for close(2).
  */
-int rec_fd(const struct rec_file *f) __attribute__((nonnull(1), pure));
+int rec_close(int rfd);
+
+/*
+ * assert() that all rec_* resources have been deallocated, for debugging only.
+ */
+#ifndef NDEBUG
+void rec_assert_released(void);
+#else
+#define rec_assert_released() ((void) 0)
+#endif

@@ -68,6 +68,8 @@ int main(int argc, char **argv);
 
 static void usage(void) __attribute__((noreturn));
 
+static const size_t memory_cache_initial = 16 * 1024;
+
 static void
 usage(void)
 {
@@ -89,20 +91,14 @@ int
 main(int argc, char **argv)
 {
 	const char	*re_str, *output_str, *errstr;
-	int		 ch, fd, error_offset, rv;
-	unsigned int	 f_no, i, j;
-	uint_fast32_t	 r, nrecords, rec_size, rec_no, *last;
-	struct rec_file
-		       **f;
+	int		 ch, fd, rfd, error_offset, rv;
+	unsigned int	 i, j;
+	uint_fast32_t	 r, nrecords, rec_size, rec_no;
+	struct rec	*rec;
 	void		*tmp;
-	struct {
-		off_t	 offset;
-		int	 len;
-		unsigned int
-			 f_no;
-	}		*rec;
 	pcre		*re;
 	pcre_extra	*re_extra;
+	size_t		 memory_cache = memory_cache_initial;
 #ifdef HAVE_SIGINFO
 	struct sigaction act;
 
@@ -191,40 +187,30 @@ main(int argc, char **argv)
 	if (errstr != NULL)
 		errx(1, "Failed to study regular expression %s: %s", re_str, errstr);
 
-	;; /* LINTED argc is still nonnegative, so this still works */
-	if (argc > SIZE_MAX / MAX(sizeof(*f), sizeof(*last))) {
-		errno = ENOMEM;
-		err(1, "Failed to allocate memory for files and end-of-file markers");
-	}
-	;; /* LINTED as above */
-	if ((f = malloc((argc == 0 ? 1 : argc) * sizeof(*f))) == NULL)
-		err(1, "Failed to allocate memory for files");
-	;; /* LINTED as above */
-	if ((last = malloc((argc == 0 ? 1 : argc) * sizeof(*last))) == NULL)
-		err(1, "Failed to allocate memory for end-of-file markers");
-
 	if ((rec = malloc((rec_size = 128) * sizeof(*rec))) == NULL)
 		err(1, "Failed to allocate memory for records");
 
 	rec_no = 0;
 	;; /* LINTED as above */
-	for (f_no = 0; f_no < 1 || f_no < argc; f_no++) {
+	for (i = 0; i < MAX(argc, 1); i++) {
 		/* Open file */
-		if (argc == 0 || strcmp(argv[f_no], "-") == 0)
+		if (argc == 0 || strcmp(argv[i], "-") == 0)
 			fd = 0;
 		else
-			if ((fd = open(argv[f_no], O_RDONLY | O_SHLOCK, 0644)) == -1)
-				err(1, "Failed to open %s", argv[f_no]);
+			if ((fd = open(argv[i], O_RDONLY | O_SHLOCK, 0644)) == -1)
+				err(1, "Failed to open %s", argv[i]);
 
-		if ((f[f_no] = rec_open(fd, re, re_extra)) == NULL)
-			err(1, "Failed to rec_open %s", strcmp(argv[f_no], "-") == 0 ? "stdin" : argv[f_no]);
+		if ((rfd = rec_open(fd, re, re_extra, &memory_cache)) == -1)
+			err(1, "Failed to rec_open %s", strcmp(argv[i], "-") == 0 ? "stdin" : argv[i]);
+		/* Note that rec_open returns the lowest unused rfd */
+		assert(rfd == i);
 
 		while (1) {
 #ifdef HAVE_SIGINFO
 			if (got_siginfo) {
 				got_siginfo = 0;
 				fprintf(stderr, "Reading %s: read %" PRIuFAST32 " records (in total)\n",
-				    argc == 0 || strcmp(argv[f_no], "-") == 0 ? "stdin" : argv[f_no],
+				    argc == 0 || strcmp(argv[i], "-") == 0 ? "stdin" : argv[i],
 				    rec_no);
 				fflush(stderr);
 			}
@@ -236,10 +222,6 @@ main(int argc, char **argv)
 			 * rec[MIN(rec_no, nrecords)] is a random selection of
 			 * distinct records from among all records we have
 			 * already seen.
-			 */
-			/*
-			 * XXX Consider keeping records in memory when passed
-			 * the -n option - it's *much* more efficient.
 			 */
 			if (MIN(rec_no, nrecords) >= rec_size) {
 				if (rec_size > MIN(UINT32_MAX / 2, SIZE_MAX / 2 / sizeof(*rec)))
@@ -256,25 +238,20 @@ main(int argc, char **argv)
 				r = nrecords;
 			rec[MIN(rec_no, nrecords)] = rec[r];
 
-			rec[r].f_no = f_no;
-			if ((rec[r].len = rec_next(f[f_no], &rec[r].offset, NULL)) == -1) {
+			if (rec_next(rfd, &rec[r]) != 0) {
 				if (errno == 0) {
 					/* EOF */
 					rec[r] = rec[MIN(rec_no, nrecords)];
-					assert(r == MIN(rec_no, nrecords) || rec[r].len > 0);
 					break;
 				} else if (errno == EAGAIN || errno == EINTR)
 					continue;
 				else
 					errx(1, "Failed to read from %s: %s%s",
-					    argc == 0 || strcmp(argv[f_no], "-") == 0 ? "stdin" : argv[f_no],
+					    argc == 0 || strcmp(argv[i], "-") == 0 ? "stdin" : argv[i],
 					    strerror(errno),
 					    errno == EINVAL ? " or error in regular expression" : "");
 			}
 
-			if (rec[r].len == 0)
-				errx(1, "Regular expression matched a zero-length record");
-			last[f_no] = r;
 			if (++rec_no == UINT32_MAX - 1)
 				errx(1, "Too many records");
 		}
@@ -291,25 +268,22 @@ main(int argc, char **argv)
 		}
 #endif
 
-		if ((errstr = rec_write_offset(f[rec[i].f_no], rec[i].offset, rec[i].len, i == last[rec[i].f_no], output_str, stdout)) != NULL) {
-			if (errno == EAGAIN || errno == EINTR) {
-				i--;
-				continue;
-			} else
+		while ((errstr = rec_write(&rec[i], output_str, stdout)) != NULL)
+			if (errno != EAGAIN && errno != EINTR)
 				errx(1, "%s", errstr);
-		}
+
+		rec_free(&rec[i]);
 	}
 
 	;; /* LINTED argc is nonnegative, so this works */
-	for (i = 0; i < argc; i++) {
-		fd = rec_fd(f[i]);
-		while ((rv = rec_close(f[i])) != 0 && (errno == EINTR || errno == EAGAIN));
+	for (i = 0; i < MAX(argc, 1); i++) {
+		while ((rv = rec_close(i)) != 0 && (errno == EINTR || errno == EAGAIN));
 		if (rv != 0)
 			err(1, "Failed to rec_close %s", argc == 0 ? "stdin" : argv[i]);
-		while ((rv = close(fd)) != 0 && (errno == EINTR || errno == EAGAIN));
-		if (rv != 0)
-			err(1, "Failed to close %s", argc == 0 ? "stdin" : argv[i]);
 	}
+
+	assert(memory_cache == memory_cache_initial);
+	rec_assert_released();
 
 	exit(0);
 }

@@ -39,59 +39,129 @@
 #define MAX(x, y) ((x) < (y) ? (x) : (y))
 #endif
 
-struct rec_file {
-	char		*buf_p;
-	pcre		*re;
+static struct {
+	off_t		 offset;	/* Current offset into tmp. If this is
+					 * -1, the struct is unused. */
+	pcre		*re;		/* The regex for this file */
 	pcre_extra	*re_extra;
+	size_t		*memory_cache;	/* How much more memory can we use? */
+	/*
+	 * At any moment, for any i between 0 and f_last,
+	 * - f[i].buf_p[f[i].buf_first_read] to f[i].buf_p[f[i].buf_last] is
+	 *   valid, unprocessed data;
+	 * - f[i].buf_p[f[i].buf_first_write] to
+	 *   f[i].buf_p[f[i].buf_first_read] is valid data that has been
+	 *   processed and should be flushed to f[i].tmp (if tmp != fd);
+	 * - f[i].buf_p[0] to f[i].buf_p[f[i].buf_first_read] and
+	 *   f[i].buf_p[f[i].buf_last] to f[i].buf_p[f[i].buf_size] is garbage.
+	 *
+	 * Note that f[i].buf_first_write is not used (and always 0) if
+	 * f[i].fd == f[i].tmp.
+	 *
+	 * Note that buf_p may be NULL, e.g. after rec_fadvise(f[i].
+	 * REC_FADV_DONTNEED).
+	 */
+	char		*buf_p;
 	/* Limited to int instead of size_t by pcre_exec() */
-	int		 buf_size, buf_first, buf_last;
-	off_t		 offset;
+	int		 buf_first_write, buf_first_read, buf_last, buf_size;
 	/*
 	 * fd is the file descriptor passed to rec_open() and tmp is either
 	 * equal to fd (if fd is seekable) or a file descriptor pointing to a
 	 * temporary file.
 	 */
 	int		 fd, tmp;
-};
+}		*f = NULL;
+static size_t	 f_size = 0, f_last = 0;
 
 /*
- * Used by pcre_exec(); rec_open() assures it's long enough, and rec_close()
- * deallocates it when all rec_file have been closed.
+ * Using struct rec.
+ *
+ * Note: if rec->internal_only.len <= 0, loc.p should be used; otherwise, use
+ * loc.offset.
+ *
+ * Note: if rec->internal_only.f_idx < 0, this record is the last record in the
+ * file; the actual f_idx is -rec->internal_only.f_idx if this is positive, or
+ * 0 for INT_MIN. Note that the converse may not be true, i.e. the last record
+ * in the file may not be last as determined by REC_IS_LAST(). This does not
+ * cause problems for the current code, as it's used only to determine whether
+ * or not to pass PCRE_NOTEOL to pcre_exec().
+ *
+ * XXX Is there any regex that can abuse this?
  */
-static int    *ovector = NULL, ovector_size = 0;
-static size_t  ovector_refcount = 0;
+#define REC_IS_OFFSET(rec) ((rec)->internal_only.len > 0)
+#define REC_IS_LAST(rec) ((rec)->internal_only.f_idx < 0)
+#define REC_LEN(rec) abs((rec)->internal_only.len)
+/*
+ * Estimated memory use, i.e. memory we actually use plus malloc overhead. Note
+ * that this cannot overflow since REC_LEN(rec) <= INT_MAX.
+ */
+#define REC_ESTIMATED_MEMORY_USE(rec) (REC_LEN(rec) + 2 * sizeof(void *) + 2 * sizeof(size_t))
+#define REC_OFFSET(rec) (assert(REC_IS_OFFSET(rec)), (rec)->internal_only.loc.offset)
+#define REC_P(rec) (assert(!REC_IS_OFFSET(rec)), (rec)->internal_only.loc.p)
+#define REC_F(rec) f[(rec)->internal_only.f_idx == INT_MIN ? 0 : abs((rec)->internal_only.f_idx)]
 
-/* Used by the rec_write_*() functions */
-static char    errstr[128];
+/*
+ * Some helper variables, automatically deallocated when all rfd's are closed.
+ *
+ * ovector* is used by pcre_exec(), and rec_open() makes sure it's long enough.
+ * buf is used by rec_write(), which handles allocation/resizing.
+ */
+static int	*ovector = NULL, ovector_size = 0;
+static char	*w_buf = NULL;
+static size_t	 w_buf_size = 0;
 
-/* Helper function for the rec_write_*() functions */
+/* Used by rec_write() */
+static char	 errstr[128];
+
+/* Helper function for the rec_write*() functions */
 static const char *rec_write_raw(const char *delim, const char *p, int ovector_valid, FILE *file) __attribute__((nonnull(1, 4)));
 
-struct rec_file *
-rec_open(int fd, pcre *re, pcre_extra *re_extra)
+int
+rec_open(int fd, pcre *re, pcre_extra *re_extra, size_t *memory_cache)
 {
 	sigset_t	 set, oset;
 	struct stat	 sb;
-	struct rec_file	*f;
 	char		*template;
 	const char	*prefix;
 	void		*tmp;
-	int		 capturecount, prefix_len;
+	int		 capturecount, prefix_len, rfd, new_files_size;
 #ifndef NDEBUG
 	int		 rv;
 #endif
 
 	template = NULL;
-	f = NULL;
-	if ((f = malloc(sizeof(*f))) == NULL ||
-	    /* LINTED conversion of 4096 to size_t is fine */
-	    (f->buf_p = malloc(f->buf_size = 4096)) == NULL)
+
+	/* Find free entry in f[] */
+	for (rfd = 0; rfd < f_last && f[rfd].offset != -1; rfd++);
+	if (rfd == f_last) {
+		if (f_last == f_size) {
+			if (f_size < 4)
+				new_files_size = 4;
+			else if (f_size <= INT_MAX / 2)
+				for (new_files_size = 1; new_files_size <= f_size; new_files_size *= 2);
+			else
+				new_files_size = INT_MAX;
+			assert(new_files_size > f_size);
+			if ((tmp = realloc(f, new_files_size * sizeof(*f))) == NULL) {
+				rfd = -1;
+				goto err;
+			}
+			f = tmp;
+			f_size = new_files_size;
+		}
+		assert(f_last < f_size);
+		rfd = f_last++;
+	}
+	
+	;; /* LINTED conversion of 4096 to size_t is fine */
+	if ((f[rfd].buf_p = malloc(f[rfd].buf_size = 4096)) == NULL)
 		goto err;
 
-	f->fd = f->tmp = fd;
-	f->buf_last = f->buf_first = 0;
-	f->offset = 0;
-	if (pcre_fullinfo(f->re = re, f->re_extra = re_extra, PCRE_INFO_CAPTURECOUNT, &capturecount) != 0)
+	f[rfd].fd = f[rfd].tmp = fd;
+	f[rfd].buf_last = f[rfd].buf_first_read = f[rfd].buf_first_write = 0;
+	f[rfd].offset = 0;
+	f[rfd].memory_cache = memory_cache;
+	if (pcre_fullinfo(f[rfd].re = re, f[rfd].re_extra = re_extra, PCRE_INFO_CAPTURECOUNT, &capturecount) != 0)
 		goto err;
 
 	assert(capturecount >= 0);
@@ -109,13 +179,12 @@ rec_open(int fd, pcre *re, pcre_extra *re_extra)
 		ovector = tmp;
 		ovector_size = (capturecount + 1) * 3;
 	}
-	ovector_refcount++;
 
 	/* If the file is not seek()able, open a temporary file */
 #ifndef NDEBUG
 	rv =
 #endif
-		fstat(f->fd, &sb);
+		fstat(f[rfd].fd, &sb);
 	assert(rv == 0);
 	/* XXX Is there a way to check for "seek works in a sane fashion"? */
 	if (!S_ISREG(sb.st_mode)) {
@@ -132,70 +201,101 @@ rec_open(int fd, pcre *re, pcre_extra *re_extra)
 		 */
 		sigfillset(&set);
 		sigprocmask(SIG_BLOCK, &set, &oset);
-		f->tmp = mkstemp(template);
-		if (f->tmp != -1)
+		f[rfd].tmp = mkstemp(template);
+		if (f[rfd].tmp != -1)
 			unlink(template);
 		sigprocmask(SIG_SETMASK, &oset, NULL);
 
-		if (f->tmp == -1)
+		if (f[rfd].tmp == -1)
 			goto err;
 	}
 
 	free(template);
 
-	return f;
+	return rfd;
 
 err:
-	if (f)
-		rec_close(f);
+	if (rfd != -1)
+		rec_close(rfd);
 	free(template);
 
-	return NULL;
+	return -1;
 }
 
 int
-rec_fd(const struct rec_file *f)
+rec_close(int rfd)
 {
-	return f->fd;
-}
+	int		 rv, rv2, rv_errno;
+	void		*tmp;
 
-int
-rec_close(struct rec_file *f)
-{
-	int		 rv;
+	rv = 0;
+	rv_errno = 0;
 
-	if (f->tmp != -1 && f->tmp != f->fd)
-		if ((rv = close(f->tmp)) != 0)
-			return rv;
+	if (f[rfd].tmp != -1 && f[rfd].tmp != f[rfd].fd)
+		if ((rv = close(f[rfd].tmp)) != 0)
+			rv_errno = errno;
 
-	free(f->buf_p);
-	free(f);
+	if ((rv2 = close(f[rfd].fd)) != 0 && rv == 0) {
+		rv = rv2;
+		rv_errno = errno;
+	}
 
-	if (ovector_refcount == 0) {
-		assert(ovector == NULL);
-		assert(ovector_size == 0);
-	} else {
-		ovector_refcount--;
-	       	if (ovector_refcount == 0) {
-			free(ovector);
-			ovector = NULL;
-			ovector_size = 0;
+	free(f[rfd].buf_p);
+	f[rfd].offset = -1;
+
+	assert(f_last > 0);
+	if (rfd == f_last - 1) {
+		for ( ; rfd >= 0 && f[rfd].offset == -1; rfd--);
+		/* Note that rfd points one *past* the last valid rfd */
+		rfd++;
+		assert(rfd >= 0);
+		if (rfd < f_size / 4) {
+			/* Shrink f[] */
+			if ((tmp = realloc(f, rfd * sizeof(*f))) != NULL) {
+				f = tmp;
+				f_last = f_size = rfd;
+			}
 		}
 	}
 
-	return 0;
+	if (f_size == 0) {
+		/* Clean up */
+		free(f);
+		f = NULL;
+		assert(f_last == 0);
+		free(ovector);
+		ovector = NULL;
+		ovector_size = 0;
+		free(w_buf);
+		w_buf = NULL;
+		w_buf_size = 0;
+	}
+
+	errno = rv_errno;
+	return rv;
+}
+
+void
+rec_assert_released(void)
+{
+	assert(f_size == 0);
+	assert(f_last == 0);
+	assert(ovector == NULL);
+	assert(ovector_size == 0);
+	assert(w_buf == NULL);
+	assert(w_buf_size == 0);
 }
 
 int
-rec_next(struct rec_file *f, off_t *offset, char **p)
+rec_next(int rfd, struct rec *rec)
 {
 	void		*tmp;
 	ssize_t		 nbytes;
-	int		 rv, eof, i, len;
+	int		 rv, eof;
 #ifndef NDEBUG
 	int		 capturecount;
 
-	assert(pcre_fullinfo(f->re, f->re_extra, PCRE_INFO_CAPTURECOUNT, &capturecount) == 0);
+	assert(pcre_fullinfo(f[rfd].re, f[rfd].re_extra, PCRE_INFO_CAPTURECOUNT, &capturecount) == 0);
 	/* LINTED converting capturecount to unsigned works */
 	assert(capturecount <= SIZE_MAX / sizeof(*ovector) / 3 - 1);
 	assert((capturecount + 1) * 3 <= ovector_size);
@@ -204,29 +304,21 @@ rec_next(struct rec_file *f, off_t *offset, char **p)
 	/*
 	 * Look for regular expression.
 	 *
-	 * We use the buffer at f->buf_p for this. At any moment,
-	 * - f->buf_p[f->buf_first..f->buf_last] is valid, unprocessed data
-	 *   (the subject of pcre_exec());
-	 * - f->buf_p[0] to f->buf_p[f->buf_first] is valid data that has been
-	 *   processed and should be flushed to disk (if using a temporary
-	 *   file);
-	 * - f->buf_p[f->buf_last] to f->buf_p[f->buf_size] is garbage.
-	 *
-	 * We run pcre_exec(); if it fails, we read more data, flushing data
-	 * and/or enlarging the buffer as necessary.
+	 * Read the documentation for f[rfd].buf_p before trying to understand
+	 * this code.
 	 */
 	eof = 0;
-	while ((rv = pcre_exec(f->re, f->re_extra, f->buf_p, f->buf_last - f->buf_first, f->buf_first, eof ? 0 : PCRE_NOTEOL, ovector, ovector_size)) < 0) {
+	while ((rv = pcre_exec(f[rfd].re, f[rfd].re_extra, f[rfd].buf_p, f[rfd].buf_last - f[rfd].buf_first_read, f[rfd].buf_first_read, eof ? 0 : PCRE_NOTEOL, ovector, ovector_size)) < 0) {
 		if (rv != PCRE_ERROR_NOMATCH) {
 			errno = EINVAL;
 			goto err;
 		}
 
 		if (eof) {
-			if (f->buf_first < f->buf_last) {
+			if (f[rfd].buf_first_read < f[rfd].buf_last) {
 				/* Unterminated final record */
-				ovector[0] = f->buf_first;
-				ovector[1] = f->buf_last;
+				ovector[0] = f[rfd].buf_first_read;
+				ovector[1] = f[rfd].buf_last;
 				break;
 			}
 
@@ -234,8 +326,8 @@ rec_next(struct rec_file *f, off_t *offset, char **p)
 			 * All data processed - everything should have been
 			 * flushed to disk. Notify the caller of EOF.
 			 */
-			assert(f->buf_first == 0);
-			assert(f->buf_last == 0);
+			assert(f[rfd].buf_first_read == 0);
+			assert(f[rfd].buf_last == 0);
 
 			errno = 0;
 			goto err;
@@ -244,14 +336,17 @@ rec_next(struct rec_file *f, off_t *offset, char **p)
 		/*
 		 * Get more data
 		 */
-		assert(f->buf_last >= f->buf_first);
-		assert(f->buf_size >= f->buf_last);
-
-		if (f->tmp != f->fd) {
+		assert(f[rfd].buf_first_write >= 0);
+		assert(f[rfd].buf_first_read >= f[rfd].buf_first_write);
+		assert(f[rfd].buf_last >= f[rfd].buf_first_read);
+		assert(f[rfd].buf_size >= f[rfd].buf_last);
+		assert(INT_MAX >= f[rfd].buf_size);
+		if (f[rfd].tmp != f[rfd].fd) {
 			/* Flush processed data to disk */
-			nbytes = 0;
-			/* LINTED converting (f->buf_first - i) to unsigned works */
-			for (i = 0; i < f->buf_first; nbytes = write(f->tmp, &f->buf_p[i], f->buf_first - i)) {
+			/* LINTED converting (f[rfd].buf_first_read - i) to unsigned works */
+			for (nbytes = 0;
+			     f[rfd].buf_first_write < f[rfd].buf_first_read;
+			     nbytes = write(f[rfd].tmp, &f[rfd].buf_p[f[rfd].buf_first_write], f[rfd].buf_first_read - f[rfd].buf_first_write)) {
 				if (nbytes == -1) {
 					if (errno == EINTR || errno == EAGAIN)
 						continue;
@@ -260,145 +355,167 @@ rec_next(struct rec_file *f, off_t *offset, char **p)
 				}
 
 				assert(nbytes >= 0);
-				/* LINTED truncating nbytes works, since nbytes <= f->buf_first <= INT_MAX */
-				i += nbytes;
+				/* LINTED truncating nbytes works, since nbytes <= f[rfd].buf_first_read <= INT_MAX */
+				f[rfd].buf_first_write += nbytes;
 			}
-			assert(i == f->buf_first);
-		}
+			assert(f[rfd].buf_first_write == f[rfd].buf_first_read);
+		} else
+			assert(f[rfd].buf_first_write == 0);
 
-		if (f->buf_size - (f->buf_last - f->buf_first) >= MAX(f->buf_size / 4, BUFSIZ)) {
+		if (f[rfd].buf_size - (f[rfd].buf_last - f[rfd].buf_first_read) >= MAX(f[rfd].buf_size / 4, BUFSIZ)) {
 			/* Just move unprocessed data to front */
-			/* LINTED f->buf_last - f->buf_first >= 0, so can be converted to size_t */
-			bcopy(&f->buf_p[f->buf_first], f->buf_p, f->buf_last - f->buf_first);
+			/* LINTED f[rfd].buf_last - f[rfd].buf_first_read >= 0, so can be converted to size_t */
+			bcopy(&f[rfd].buf_p[f[rfd].buf_first_read], f[rfd].buf_p, f[rfd].buf_last - f[rfd].buf_first_read);
 		} else {
 			/* Enlarge buffer */
-			if (f->buf_size > INT_MAX / 2) {
+			if (f[rfd].buf_size > INT_MAX / 2) {
 				errno = ENOMEM;
 				goto err;
 			}
 
-			;; /* LINTED f->buf_size * 2 fits in INT_MAX per above */
-			if ((tmp = malloc(f->buf_size * 2)) == NULL)
+			;; /* LINTED f[rfd].buf_size * 2 fits in INT_MAX per above */
+			if ((tmp = malloc(f[rfd].buf_size * 2)) == NULL)
 				goto err;
 
-			;; /* LINTED f->buf_last - f->buf_first >= 0 as above */
-			memcpy(tmp, &f->buf_p[f->buf_first], f->buf_last - f->buf_first);
+			;; /* LINTED f[rfd].buf_last - f[rfd].buf_first_read >= 0 as above */
+			memcpy(tmp, &f[rfd].buf_p[f[rfd].buf_first_read], f[rfd].buf_last - f[rfd].buf_first_read);
 
-			free(f->buf_p);
-			f->buf_p = tmp;
-			f->buf_size *= 2;
+			free(f[rfd].buf_p);
+			f[rfd].buf_p = tmp;
+			f[rfd].buf_size *= 2;
 		}
-		f->buf_last -= f->buf_first;
-		f->buf_first = 0;
-		assert(f->buf_size > f->buf_last);
+		f[rfd].buf_last -= f[rfd].buf_first_read;
+		f[rfd].buf_first_write = f[rfd].buf_first_read = 0;
+		assert(f[rfd].buf_size > f[rfd].buf_last);
 
 		/* Read additional data */
-		/* LINTED f->buf_last - f->buf_first >= 0 as above */
-		while ((nbytes = read(f->fd, &f->buf_p[f->buf_last], f->buf_size - f->buf_last)) == -1 && (errno == EINTR || errno == EAGAIN));
+		/* LINTED f[rfd].buf_last - f[rfd].buf_first_read >= 0 as above */
+		while ((nbytes = read(f[rfd].fd, &f[rfd].buf_p[f[rfd].buf_last], f[rfd].buf_size - f[rfd].buf_last)) == -1 && (errno == EINTR || errno == EAGAIN));
 		if (nbytes == -1)
 			goto err;
 		if (nbytes == 0)
 			eof = 1;
-		;; /* LINTED nbytes <= f->buf_size <= INT_MAX, and no overflow can happen here */
-		f->buf_last += nbytes;
+		;; /* LINTED nbytes <= f[rfd].buf_size <= INT_MAX, and no overflow can happen here */
+		f[rfd].buf_last += nbytes;
 	}
 
-	assert(ovector[0] >= f->buf_first);
+	if (!eof)
+		rec->internal_only.f_idx = rfd;
+	else {
+		if (rfd == 0)
+			rec->internal_only.f_idx = INT_MIN;
+		else
+			rec->internal_only.f_idx = -rfd;
+
+		assert(REC_IS_LAST(rec));
+	}
+	assert(&REC_F(rec) == &f[rfd]);
+
+	assert(ovector[0] >= f[rfd].buf_first_read);
 	assert(ovector[1] >= ovector[0]);
-	assert(f->buf_last >= ovector[1]);
+	assert(f[rfd].buf_last >= ovector[1]);
 
-	len = ovector[1] - f->buf_first;
-
-	if (offset != NULL)
-		*offset = f->offset;
-
-	if (p != NULL) {
-		/* LINTED len >= 0, so can be converted to size_t */
-		if ((*p = malloc(len)) == NULL)
-			goto err;
-
-		;; /* LINTED len fits in an int since ovector[1] does */
-		memcpy(*p, &f->buf_p[f->buf_first], len);
+	rec->internal_only.len = ovector[1] - f[rfd].buf_first_read;
+	/* LINTED converting REC_LEN(rec) to unsigned works fine */
+	if (f[rfd].fd != f[rfd].tmp &&
+	    f[rfd].buf_first_read == f[rfd].buf_first_write &&
+	    *f[rfd].memory_cache >= REC_ESTIMATED_MEMORY_USE(rec) &&
+	    (rec->internal_only.loc.p = malloc(REC_LEN(rec))) != NULL) {
+		/* Keep record in memory */
+		memcpy(rec->internal_only.loc.p, &f[rfd].buf_p[f[rfd].buf_first_read], REC_LEN(rec));
+		/* Don't write it to disk */
+		f[rfd].buf_first_write += REC_LEN(rec);
+		/* LINTED converting REC_LEN(rec) to unsigned still works fine */
+		/* Mark as in-memory record */
+		rec->internal_only.len = -rec->internal_only.len;
+		assert(!REC_IS_OFFSET(rec));
+		*f[rfd].memory_cache -= REC_ESTIMATED_MEMORY_USE(rec);
+	} else {
+		rec->internal_only.loc.offset = f[rfd].offset;
+		assert(REC_IS_OFFSET(rec));
 	}
 
-#ifdef DEBUG_PRINT
-	fprintf(stderr, "record: %.*s", len, &f->buf_p[f->buf_first]);
-#endif
+	assert(f[rfd].buf_first_read + REC_LEN(rec) == ovector[1]);
+	f[rfd].buf_first_read = ovector[1];
+	assert(f[rfd].buf_first_write <= f[rfd].buf_first_read);
 
-	f->buf_first = ovector[1];
-	f->offset += len;
+	if (REC_IS_OFFSET(rec) || f[rfd].tmp == f[rfd].fd)
+		f[rfd].offset += REC_LEN(rec);
 
-	return len;
+	return 0;
 
 err:
 	return -1;
 }
 
 const char *
-rec_write_offset(struct rec_file *f, off_t offset, int len, int last, const char *delim, FILE *file)
+rec_write(const struct rec *rec, const char *delim, FILE *file)
 {
-	/* Limited by len anyway */
-	int		 i, nbytes;
-
-	/*
-	 * Read data into memory and call rec_write_mem()
-	 */
-
-	/* rec_next() could handle this record, after all... */
-	assert(len <= f->buf_size);
-
-	nbytes = 0;
-	assert(f->buf_first == 0);
-	assert(f->buf_first == f->buf_last);
-	/* LINTED everything is limited to an int, so no problems here */
-	for (i = 0; i < len; nbytes = pread(f->tmp, &f->buf_p[i], len - i, offset + i)) {
-		if (nbytes == -1) {
-			/* LINTED f->buf_size >= 0, so can be converted to size_t */
-			snprintf(f->buf_p, f->buf_size, "Failed to read record from file: %s", strerror(errno));
-			goto err;
-		}
-
-		assert(nbytes >= 0);
-		i += nbytes;
-	}
-	assert(i == len);
-
-#ifdef DEBUG_PRINT
-	fprintf(stderr, "printing: %.*s", len, f->buf_p);
-#endif
-
-	return rec_write_mem(f, f->buf_p, len, last, delim, file);
-
-err:
-	return f->buf_p;
-}
-
-const char *
-rec_write_mem(struct rec_file *f, const char *p, int len, int last, const char *delim, FILE *file)
-{
-	int		 ovector_valid;
-	size_t		 nbytes;
+	const char	*p;
+	void		*tmp;
+	int		 i, ovector_valid, nbytes;
+	size_t		 new_len;
 #ifndef NDEBUG
 	int		 capturecount;
 
-	assert(pcre_fullinfo(f->re, f->re_extra, PCRE_INFO_CAPTURECOUNT, &capturecount) == 0);
+	assert(pcre_fullinfo(REC_F(rec).re, REC_F(rec).re_extra, PCRE_INFO_CAPTURECOUNT, &capturecount) == 0);
 	/* LINTED capturecount is nonnegative, so comparing with unsigned works */
 	assert(capturecount <= SIZE_MAX / sizeof(*ovector) / 3 - 1);
 	assert((capturecount + 1) * 3 <= ovector_size);
 #endif
 
-	assert(len > 0);
+	if (!REC_IS_OFFSET(rec))
+		/* Already in memory */
+		p = REC_P(rec);
+	else {
+		/* Read into w_buf */
+		/* LINTED converting REC_LEN(rec) to unsigned works fine */
+		if (w_buf_size < REC_LEN(rec)) {
+			/* Enlarge w_buf */
+			/* LINTED converting REC_LEN(rec) to unsigned still works fine */
+			for (new_len = w_buf_size != 0 ? w_buf_size : BUFSIZ;
+			     new_len < REC_LEN(rec);
+			     new_len *= 2);
+			if ((tmp = realloc(w_buf, new_len)) == NULL) {
+				snprintf(errstr, sizeof(errstr), "Failed to allocate buffer space: %s", strerror(errno));
+				goto err;
+			}
 
-	if ((ovector_valid = pcre_exec(f->re, f->re_extra, p, len, 0, last ? 0 : PCRE_NOTEOL, ovector, ovector_size)) < 0) {
+			w_buf = tmp;
+			w_buf_size = new_len;
+		}
+
+		nbytes = 0;
+		/* LINTED everything is limited to an int, so no problems here */
+		for (i = 0; i < REC_LEN(rec); nbytes = pread(REC_F(rec).tmp, &w_buf[i], REC_LEN(rec) - i, REC_OFFSET(rec) + i)) {
+			if (nbytes == -1) {
+				snprintf(errstr, sizeof(errstr), "Failed to read record from file: %s", strerror(errno));
+				goto err;
+			}
+
+			assert(nbytes >= 0);
+			i += nbytes;
+		}
+		assert(i == REC_LEN(rec));
+
+		p = w_buf;
+	}
+
+	/*
+	 * We have REC_LEN(rec) bytes of data starting at p.
+	 *
+	 * Re-run the regular expression to get matches etc.
+	 */
+	if ((ovector_valid = pcre_exec(REC_F(rec).re, REC_F(rec).re_extra, p, REC_LEN(rec), 0, REC_IS_LAST(rec) ? 0 : PCRE_NOTEOL, ovector, ovector_size)) < 0) {
 		/* Unterminated final record */
 		assert(ovector_valid == PCRE_ERROR_NOMATCH);
-		assert(last);
+		assert(REC_IS_LAST(rec));
 
 		ovector_valid = 0;
-		ovector[0] = ovector[1] = len;
+		ovector[0] = ovector[1] = REC_LEN(rec);
 	} else {
 		assert(ovector_valid >= 1);
-		assert(ovector[1] == len);
+		assert(ovector[1] == REC_LEN(rec));
 	}
 
 	/* Output anything prior to match */
@@ -407,10 +524,13 @@ rec_write_mem(struct rec_file *f, const char *p, int len, int last, const char *
 	/* LINTED as above */
 	if (nbytes != ovector[0]) {
 		snprintf(errstr, sizeof(errstr), "Failed to write output: %s", strerror(errno));
-		return errstr;
+		goto err;
 	}
 
 	return rec_write_raw(delim, p, ovector_valid, file);
+
+err:
+	return errstr;
 }
 
 const char *
@@ -431,9 +551,13 @@ rec_write_raw(const char *delim, const char *p, int ovector_valid, FILE *file)
 		SEEN_HEX0,
 		SEEN_HEX1
 	}		 state;
-	char		 tmp[5];
+	char		 vis_buf[5];
 
-	/* Output delim, handling backreferences and the like */
+	/*
+	 * Output delim, handling backreferences and the like.
+	 *
+	 * This is mostly a finite state machine parsing delim.
+	 */
 	state = NORMAL;
 	value = 0;
 	if (strlen(delim) >= INT_MAX) {
@@ -562,8 +686,8 @@ output_match:
 				value = delim[i] - '0';
 				goto output_match;
 			default:
-				vis(tmp, delim[i], VIS_CSTYLE | VIS_NOSLASH, ':');
-				snprintf(errstr, sizeof(errstr), "Invalid escape sequence \\%s: reserved for future use", tmp);
+				vis(vis_buf, delim[i], VIS_CSTYLE | VIS_NOSLASH, ':');
+				snprintf(errstr, sizeof(errstr), "Invalid escape sequence \\%s: reserved for future use", vis_buf);
 				goto err;
 			}
 			break;
@@ -580,8 +704,8 @@ output_match:
 				 */
 				i--;
 			} else {
-				vis(tmp, delim[i], VIS_CSTYLE, ':');
-				snprintf(errstr, sizeof(errstr), "Invalid escape sequence \\x%s: expected a hex digit", tmp);
+				vis(vis_buf, delim[i], VIS_CSTYLE, ':');
+				snprintf(errstr, sizeof(errstr), "Invalid escape sequence \\x%s: expected a hex digit", vis_buf);
 				goto err;
 			}
 
@@ -639,4 +763,13 @@ err_char:
 
 err:
 	return errstr;
+}
+
+void
+rec_free(struct rec *rec)
+{
+	if (rec != NULL && !REC_IS_OFFSET(rec)) {
+		*REC_F(rec).memory_cache += REC_ESTIMATED_MEMORY_USE(rec);
+		free(rec->internal_only.loc.p);
+	}
 }

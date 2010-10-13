@@ -43,6 +43,9 @@ test: randomize test/1.in test/1.out test/2.in test/2.out test/3a.in test/3b.in 
 		diff -u test/1.out test/1.result
 	cat test/1.in | ./randomize | sort > test/1.result &&\
 		diff -u test/1.out test/1.result
+	./randomize -e '\n' -o '&' test/1.in >/dev/null 2>&1 &&\
+		echo 'This is not supposed to work' >&2 &&\
+		exit 1 || true
 	./randomize -e 'ignored' -o '\n' -an 10 `cat test/1.in` | sort > test/1.result &&\
 		diff -u test/1.out test/1.result
 	# Long lines

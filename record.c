@@ -225,7 +225,7 @@ rec_next(struct rec_file *f, off_t *offset, char **p)
 		if (eof) {
 			if (f->buf_first < f->buf_last) {
 				/* Unterminated final record */
-				ovector[0] = f->buf_last;
+				ovector[0] = f->buf_first;
 				ovector[1] = f->buf_last;
 				break;
 			}

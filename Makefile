@@ -37,34 +37,38 @@ lint:
 randomize: ${OBJS}
 	${CC} ${CFLAGS} ${LDFLAGS} -o randomize ${OBJS}
 
-test: randomize test/1.in test/1.out test/2.in test/2.out test/3a.in test/3b.in test/3c.in test/3.out test/4.in test/4.out test/5.in test/5.out
-	# Basic functionality
+test: randomize test/1.in test/1.out test/2.in test/2.out test/3.in test/3.out test/4a.in test/4b.in test/4c.in test/4.out test/5.in test/5.out
+	# Simplest case
 	./randomize test/1.in | sort > test/1.result &&\
 		diff -u test/1.out test/1.result
-	cat test/1.in | ./randomize | sort > test/1.result &&\
-		diff -u test/1.out test/1.result
+	# No end of line
 	./randomize -e '\n' -o '&' test/1.in >/dev/null 2>&1 &&\
 		echo 'This is not supposed to work' >&2 &&\
 		exit 1 || true
+	# Randomize arguments
 	./randomize -e 'ignored' -o '\n' -an 10 `cat test/1.in` | sort > test/1.result &&\
 		diff -u test/1.out test/1.result
-	# Long lines
-	./randomize test/2.in | sort > test/2.result &&\
+	# Reading from pipe (long file, partially in memory)
+	cat test/2.in | ./randomize | sort > test/2.result &&\
 		diff -u test/2.out test/2.result
-	# Multiple files
-	./randomize test/3a.in test/3b.in test/3c.in | sort > test/3.result &&\
+	# Long lines
+	./randomize test/3.in | sort > test/3.result &&\
 		diff -u test/3.out test/3.result
-	# Regular expression support
-	./randomize -e '(.*?)([ \t])' -o '\0\x0\2\1\n' test/4.in | sort > test/4.result &&\
+	# Multiple files
+	cat test/4a.in | ./randomize - test/4b.in test/4c.in | sort > test/4.result &&\
 		diff -u test/4.out test/4.result
+	# Regular expression and escape support
+	./randomize -e '(.*?)([ \t])' -o '\0\x0\2\1\n' test/5.in | sort > test/5.result &&\
+		diff -u test/5.out test/5.result
 	# Requesting a few lines
-	for i in 1 2 3;\
-		do ./randomize -n $$i test/5.in >/dev/null || exit 1;\
-	done
-	for i in 4 5 6 10000;\
-		do ./randomize -n $$i test/5.in | sort > test/5.result &&\
-			diff -u test/5.out test/5.result || exit 1;\
-	done
+	./randomize -n 1 test/2.in >/dev/null || exit 1;
+	cat test/2.in | ./randomize -n 1 >/dev/null || exit 1;
+	./randomize -n 512 test/2.in >/dev/null || exit 1;
+	cat test/2.in | ./randomize -n 512 >/dev/null || exit 1;
+	./randomize -n 10000 test/2.in | sort > test/2.result &&\
+		diff -u test/2.out test/2.result
+	cat test/2.in | ./randomize -n 10000 | sort > test/2.result &&\
+		diff -u test/2.out test/2.result
 
 ${OBJS}: compat.h record.h
 

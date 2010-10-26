@@ -94,11 +94,14 @@ main(int argc, char **argv)
 	int		 ch, fd, rfd, error_offset, rv;
 	unsigned int	 i, j;
 	uint_fast32_t	 r, nrecords, rec_size, rec_no;
-	struct rec	*rec;
+	struct rec	*rec, to_free;
 	void		*tmp;
 	pcre		*re;
 	pcre_extra	*re_extra;
-	size_t		 memory_cache = memory_cache_initial;
+	size_t		 memory_cache;
+#ifndef NDEBUG
+	int		 to_free_valid;
+#endif
 #ifdef HAVE_SIGINFO
 	struct sigaction act;
 
@@ -123,6 +126,10 @@ main(int argc, char **argv)
 #endif
 #endif
 
+#ifndef NDEBUG
+	to_free_valid = 0;
+#endif
+	memory_cache = memory_cache_initial;
 	re = NULL;
 	re_extra = NULL;
 	tmp = NULL;
@@ -191,13 +198,13 @@ main(int argc, char **argv)
 		err(1, "Failed to allocate memory for records");
 
 	rec_no = 0;
-	;; /* LINTED as above */
+	/* LINTED as above */
 	for (i = 0; i < MAX(argc, 1); i++) {
 		/* Open file */
 		if (argc == 0 || strcmp(argv[i], "-") == 0)
 			fd = 0;
 		else
-			if ((fd = open(argv[i], O_RDONLY | O_SHLOCK, 0644)) == -1)
+			if ((fd = open(argv[i], O_RDONLY, 0644)) == -1)
 				err(1, "Failed to open %s", argv[i]);
 
 		if ((rfd = rec_open(fd, re, re_extra, &memory_cache)) == -1)
@@ -205,6 +212,21 @@ main(int argc, char **argv)
 		/* Note that rec_open returns the lowest unused rfd */
 		assert(rfd == i);
 
+		/*
+		 * The loop below is a Knuth/Fisher-Yates shuffle, i.e.
+		 *
+		 *	while (!eof) {
+		 *		r = random_uniform(rec_no + 1);
+		 *		rec[rec_no] = rec[r];
+		 *		rec[r] = rec_next();
+		 *		rec_no++;
+		 *	}
+		 *
+		 * but we never store more than nrecords records.
+		 *
+		 * Loop invariant: rec[0] to rec[MIN(rec_no, nrecords)] is a
+		 * uniformly random selection of distinct records.
+		 */
 		while (1) {
 #ifdef HAVE_SIGINFO
 			if (got_siginfo) {
@@ -216,14 +238,7 @@ main(int argc, char **argv)
 			}
 #endif
 
-			/*
-			 * Loop invariant: rec_no is the number of the current
-			 * record (among all files), and rec[0] through
-			 * rec[MIN(rec_no, nrecords)] is a random selection of
-			 * distinct records from among all records we have
-			 * already seen.
-			 */
-			if (MIN(rec_no, nrecords) >= rec_size) {
+			if (MIN(rec_no + 1, nrecords) > rec_size) {
 				if (rec_size > MIN(UINT32_MAX / 2, SIZE_MAX / 2 / sizeof(*rec)))
 					err(1, "Too many records");
 				if ((tmp = realloc(rec, 2 * rec_size * sizeof(*rec))) == NULL)
@@ -234,28 +249,56 @@ main(int argc, char **argv)
 			}
 
 			r = random_uniform(rec_no + 1);
-			if (r > nrecords)
-				r = nrecords;
-			rec[MIN(rec_no, nrecords)] = rec[r];
+			if (r < MIN(rec_no, nrecords)) {
+				/* Overwriting valid data */
+				if (rec_no < nrecords)
+					rec[rec_no] = rec[r];
+				else {
+					assert(to_free_valid == 0);
+					to_free = rec[r];
+#ifndef NDEBUG
+					to_free_valid = 1;
+#endif
+				}
+			}
 
-			if (rec_next(rfd, &rec[r]) != 0) {
-				if (errno == 0) {
-					/* EOF */
-					rec[r] = rec[MIN(rec_no, nrecords)];
+try_again:
+			if (rec_next(rfd, r < nrecords ? &rec[r] : NULL) != 0) {
+				if (errno == EAGAIN || errno == EINTR)
+					goto try_again;
+				else if (errno == 0) {
+					if (r < MIN(rec_no, nrecords) && rec_no >= nrecords) {
+						/*
+						 * We don't want to free
+						 * to_free = rec[r] after
+						 * all...
+						 */
+						assert(to_free_valid == 1);
+#ifndef NDEBUG
+						to_free_valid = 0;
+#endif
+					}
 					break;
-				} else if (errno == EAGAIN || errno == EINTR)
-					continue;
-				else
+				} else
 					errx(1, "Failed to read from %s: %s%s",
 					    argc == 0 || strcmp(argv[i], "-") == 0 ? "stdin" : argv[i],
 					    strerror(errno),
 					    errno == EINVAL ? " or error in regular expression" : "");
 			}
 
+			if (r < MIN(rec_no, nrecords) && rec_no >= nrecords) {
+				assert(to_free_valid == 1);
+				rec_free(&to_free);
+#ifndef NDEBUG
+				to_free_valid = 0;
+#endif
+			}
+
 			if (++rec_no == UINT32_MAX - 1)
 				errx(1, "Too many records");
 		}
 	}
+	assert(to_free_valid == 0);
 
 	/* Write out data */
 	for (i = 0; i < MIN(rec_no, nrecords); i++) {

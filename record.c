@@ -291,7 +291,7 @@ rec_next(int rfd, struct rec *rec)
 {
 	void		*tmp;
 	ssize_t		 nbytes;
-	int		 rv, eof;
+	int		 rv, eof, rec_len;
 #ifndef NDEBUG
 	int		 capturecount;
 
@@ -399,48 +399,58 @@ rec_next(int rfd, struct rec *rec)
 		f[rfd].buf_last += nbytes;
 	}
 
-	if (!eof)
-		rec->internal_only.f_idx = rfd;
-	else {
-		if (rfd == 0)
-			rec->internal_only.f_idx = INT_MIN;
-		else
-			rec->internal_only.f_idx = -rfd;
-
-		assert(REC_IS_LAST(rec));
-	}
-	assert(&REC_F(rec) == &f[rfd]);
-
 	assert(ovector[0] >= f[rfd].buf_first_read);
 	assert(ovector[1] >= ovector[0]);
 	assert(f[rfd].buf_last >= ovector[1]);
 
-	rec->internal_only.len = ovector[1] - f[rfd].buf_first_read;
-	/* LINTED converting REC_LEN(rec) to unsigned works fine */
-	if (f[rfd].fd != f[rfd].tmp &&
-	    f[rfd].buf_first_read == f[rfd].buf_first_write &&
-	    *f[rfd].memory_cache >= REC_ESTIMATED_MEMORY_USE(rec) &&
-	    (rec->internal_only.loc.p = malloc(REC_LEN(rec))) != NULL) {
-		/* Keep record in memory */
-		memcpy(rec->internal_only.loc.p, &f[rfd].buf_p[f[rfd].buf_first_read], REC_LEN(rec));
-		/* Don't write it to disk */
-		f[rfd].buf_first_write += REC_LEN(rec);
-		/* LINTED converting REC_LEN(rec) to unsigned still works fine */
-		/* Mark as in-memory record */
-		rec->internal_only.len = -rec->internal_only.len;
-		assert(!REC_IS_OFFSET(rec));
-		*f[rfd].memory_cache -= REC_ESTIMATED_MEMORY_USE(rec);
+	rec_len = ovector[1] - f[rfd].buf_first_read;
+	if (rec != NULL) {
+		rec->internal_only.len = rec_len;
+
+		if (!eof)
+			rec->internal_only.f_idx = rfd;
+		else {
+			if (rfd == 0)
+				rec->internal_only.f_idx = INT_MIN;
+			else
+				rec->internal_only.f_idx = -rfd;
+
+			assert(REC_IS_LAST(rec));
+		}
+		assert(&REC_F(rec) == &f[rfd]);
+
+		;; /* LINTED converting rec_len to unsigned works fine */
+		if (f[rfd].fd != f[rfd].tmp &&
+		    f[rfd].buf_first_read == f[rfd].buf_first_write &&
+		    (*f[rfd].memory_cache >= REC_ESTIMATED_MEMORY_USE(rec) &&
+		     (rec->internal_only.loc.p = malloc(rec_len)) != NULL)) {
+			/* Keep record in memory */
+			memcpy(rec->internal_only.loc.p, &f[rfd].buf_p[f[rfd].buf_first_read], REC_LEN(rec));
+			/* Don't write it to disk */
+			f[rfd].buf_first_write += rec_len;
+			/* LINTED converting REC_LEN(rec) to unsigned still works fine */
+			/* Mark as in-memory record */
+			rec->internal_only.len = -rec->internal_only.len;
+			assert(!REC_IS_OFFSET(rec));
+			*f[rfd].memory_cache -= REC_ESTIMATED_MEMORY_USE(rec);
+		} else {
+			rec->internal_only.loc.offset = f[rfd].offset;
+			assert(REC_IS_OFFSET(rec));
+			f[rfd].offset += rec_len;
+		}
 	} else {
-		rec->internal_only.loc.offset = f[rfd].offset;
-		assert(REC_IS_OFFSET(rec));
+		if (f[rfd].fd != f[rfd].tmp &&
+		    f[rfd].buf_first_read == f[rfd].buf_first_write) {
+			/* Don't write it to disk */
+			/* XXX We'd prefer *never* writing to disk */
+			f[rfd].buf_first_write += rec_len;
+		} else
+			f[rfd].offset += rec_len;
 	}
 
-	assert(f[rfd].buf_first_read + REC_LEN(rec) == ovector[1]);
+	assert(f[rfd].buf_first_read + rec_len == ovector[1]);
 	f[rfd].buf_first_read = ovector[1];
 	assert(f[rfd].buf_first_write <= f[rfd].buf_first_read);
-
-	if (REC_IS_OFFSET(rec) || f[rfd].tmp == f[rfd].fd)
-		f[rfd].offset += REC_LEN(rec);
 
 	return 0;
 

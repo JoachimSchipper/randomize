@@ -49,13 +49,14 @@ struct rec {
 int rec_open(int fd, pcre *re, pcre_extra *re_extra, size_t *memory_cache) __attribute__((nonnull(2, 3)));
 
 /*
- * Get next record.
+ * Get next record. If rec is NULL, the data is discarded instead.
  *
- * Returns 0 on success and initializes rec; otherwise, returns -1 and sets
- * errno as for read(2), write(2), or malloc(3), or to 0 on EOF, or to EINVAL
- * if there was an error while processing the regular expression.
+ * Returns 0 on success and initializes rec (if non-NULL); otherwise, returns
+ * -1 and sets errno as for read(2), write(2), or malloc(3), or to 0 on EOF, or
+ * to EINVAL if there was an error while processing the regular expression.
+ * Unless rec_next returns 0, rec is unchanged.
  */
-int rec_next(int rfd, struct rec *rec) __attribute__((nonnull(2)));
+int rec_next(int rfd, struct rec *rec);
 
 /*
  * Write record to FILE *.

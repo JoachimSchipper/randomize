@@ -4,15 +4,19 @@ in a random order ("shuffle"), or...
 
 It's pretty trivial to do this as a one-line perl script, but randomize has
 several advantages:
-- it's much more efficient for large files, or if you only want a few records;
+- it's much more efficient for large files or if you only want a few records;
 - the input is delimited on newlines by default, but any Perl-compatible
   regular expression may be used (in particular, you can process filenames
   containing spaces and newlines with find -print0 | randomize -e '\0').
 
 This software requires PCRE (the Perl-compatible regular expression library)
-and should run on any POSIX-compatible system. Tweak the DEFINES line in the
-Makefile if your system does not have arc4random(), srandomdev(), SIGINFO or
-vis(). *BSD/Mac OS X should have all of these features; Linux only has SIGINFO.
+and should run on any POSIX-compatible system.
+
+Tweak the DEFINES variable in the Makefile if your system does not have
+arc4random(), srandomdev(), SIGINFO or vis(). *BSD/Mac OS X should have all of
+these features; Linux only has SIGINFO.
+Set the MANDOC variable in the Makefile to groff -mandoc if your system does
+not have mandoc.
 
 randomize is available under OpenBSD's version of the ISC license (effectively
 the 2-clause BSD license), found in the source files.

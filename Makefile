@@ -25,6 +25,9 @@ CFLAGS=-std=c99 -pedantic -W -Wall -Wno-sign-compare -Wno-unused-parameter -Wbad
 LDFLAGS=-L/usr/local/lib -lpcre
 LINT=lint -ceFHrx -DLINT -I/usr/local/include -L/usr/local/lib -lpcre ${DEFINES}
 OBJS=compat.o record.o randomize.o
+# For systems with groff but no mandoc, use
+#MANDOC=groff -mandoc
+MANDOC=mandoc
 
 all: randomize randomize.cat1
 
@@ -73,4 +76,4 @@ test: randomize test/1.in test/1.out test/2.in test/2.out test/3.in test/3.out t
 ${OBJS}: compat.h record.h
 
 randomize.cat1: randomize.1
-	groff -Tascii -mandoc randomize.1 > randomize.cat1
+	${MANDOC} -Tascii randomize.1 > randomize.cat1

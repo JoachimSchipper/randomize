@@ -703,10 +703,9 @@ output_match:
 			break;
 		case SEEN_HEX0: /* FALLTHROUGH */
 		case SEEN_HEX1:
-			if (isdigit(delim[i]))
-				value = 16 * value + delim[i] - '0';
-			else if (isxdigit(delim[i]))
-				value = 16 * value + delim[i] - (isupper(delim[i]) ? 'A' : 'a') + 10;
+			if (isxdigit(delim[i]))
+				value = 16 * value + delim[i] - (isdigit(delim[i]) ? '0' :
+								 isupper(delim[i]) ? 'A' : 'a');
 			else if (state == SEEN_HEX1) {
 				/*
 				 * Not a hex digit - print value and process

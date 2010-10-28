@@ -61,7 +61,7 @@ test: randomize test/1.in test/1.out test/2.in test/2.out test/3.in test/3.out t
 	cat test/4a.in | ./randomize - test/4b.in test/4c.in | sort > test/4.result &&\
 		diff -u test/4.out test/4.result
 	# Regular expression and escape support
-	./randomize -e '(.*?)([ \t])' -o '\0\x0\2\1\n' test/5.in | sort > test/5.result &&\
+	./randomize -e '(.*?)([ \t])' -o '\0\x0\xb\xB\2\1\n' test/5.in | sort > test/5.result &&\
 		diff -u test/5.out test/5.result
 	# Requesting a few lines
 	./randomize -n 1 test/2.in >/dev/null || exit 1;

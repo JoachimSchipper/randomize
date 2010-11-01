@@ -210,6 +210,7 @@ main(int argc, char **argv)
 		if ((rfd = rec_open(fd, re, re_extra, &memory_cache)) == -1)
 			err(1, "Failed to rec_open %s", strcmp(argv[i], "-") == 0 ? "stdin" : argv[i]);
 		/* Note that rec_open returns the lowest unused rfd */
+		;; /* LINTED converting rfd to unsigned works */
 		assert(rfd == i);
 
 		/*
@@ -320,6 +321,7 @@ try_again:
 
 	;; /* LINTED argc is nonnegative, so this works */
 	for (i = 0; i < MAX(argc, 1); i++) {
+		/* LINTED converting i to signed int works */
 		while ((rv = rec_close(i)) != 0 && (errno == EINTR || errno == EAGAIN));
 		if (rv != 0)
 			err(1, "Failed to rec_close %s", argc == 0 ? "stdin" : argv[i]);

@@ -71,7 +71,7 @@ static struct {
 	 */
 	int		 fd, tmp;
 }		*f = NULL;
-static size_t	 f_size = 0, f_last = 0;
+static int	 f_size = 0, f_last = 0;
 
 /*
  * Using struct rec.
@@ -142,6 +142,7 @@ rec_open(int fd, pcre *re, pcre_extra *re_extra, size_t *memory_cache)
 			else
 				new_files_size = INT_MAX;
 			assert(new_files_size > f_size);
+			/* LINTED converting new_files_size to size_t works */
 			if ((tmp = realloc(f, new_files_size * sizeof(*f))) == NULL) {
 				rfd = -1;
 				goto err;
@@ -251,6 +252,7 @@ rec_close(int rfd)
 		assert(rfd >= 0);
 		if (rfd < f_size / 4) {
 			/* Shrink f[] */
+			/* LINTED converting rfd to size_t works */
 			if ((tmp = realloc(f, rfd * sizeof(*f))) != NULL) {
 				f = tmp;
 				f_last = f_size = rfd;
@@ -425,6 +427,7 @@ rec_next(int rfd, struct rec *rec)
 		    (*f[rfd].memory_cache >= REC_ESTIMATED_MEMORY_USE(rec) &&
 		     (rec->internal_only.loc.p = malloc(rec_len)) != NULL)) {
 			/* Keep record in memory */
+			/* LINTED converting REC_LEN(rec) to size_t works */
 			memcpy(rec->internal_only.loc.p, &f[rfd].buf_p[f[rfd].buf_first_read], REC_LEN(rec));
 			/* Don't write it to disk */
 			f[rfd].buf_first_write += rec_len;
@@ -432,6 +435,7 @@ rec_next(int rfd, struct rec *rec)
 			/* Mark as in-memory record */
 			rec->internal_only.len = -rec->internal_only.len;
 			assert(!REC_IS_OFFSET(rec));
+			/* LINTED converting REC_EST... to size_t works */
 			*f[rfd].memory_cache -= REC_ESTIMATED_MEMORY_USE(rec);
 		} else {
 			rec->internal_only.loc.offset = f[rfd].offset;
@@ -778,6 +782,7 @@ void
 rec_free(struct rec *rec)
 {
 	if (rec != NULL && !REC_IS_OFFSET(rec)) {
+		/* LINTED converting REC_EST... to size_t works */
 		*REC_F(rec).memory_cache += REC_ESTIMATED_MEMORY_USE(rec);
 		free(rec->internal_only.loc.p);
 	}

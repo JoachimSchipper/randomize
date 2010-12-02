@@ -229,16 +229,6 @@ main(int argc, char **argv)
 		 * uniformly random selection of distinct records.
 		 */
 		while (1) {
-#ifdef HAVE_SIGINFO
-			if (got_siginfo) {
-				got_siginfo = 0;
-				fprintf(stderr, "Reading %s: read %" PRIuFAST32 " records (in total)\n",
-				    argc == 0 || strcmp(argv[i], "-") == 0 ? "stdin" : argv[i],
-				    rec_no);
-				fflush(stderr);
-			}
-#endif
-
 			if (MIN(rec_no + 1, nrecords) > rec_size) {
 				if (rec_size > MIN(UINT32_MAX / 2, SIZE_MAX / 2 / sizeof(*rec)))
 					err(1, "Too many records");
@@ -264,6 +254,15 @@ main(int argc, char **argv)
 			}
 
 try_again:
+#ifdef HAVE_SIGINFO
+			if (got_siginfo) {
+				got_siginfo = 0;
+				fprintf(stderr, "Reading %s: read %" PRIuFAST32 " records (in total)\n",
+				    argc == 0 || strcmp(argv[i], "-") == 0 ? "stdin" : argv[i],
+				    rec_no);
+				fflush(stderr);
+			}
+#endif
 			if (rec_next(rfd, r < nrecords ? &rec[r] : NULL) != 0) {
 				if (errno == EAGAIN || errno == EINTR)
 					goto try_again;
@@ -303,6 +302,7 @@ try_again:
 
 	/* Write out data */
 	for (i = 0; i < MIN(rec_no, nrecords); i++) {
+try_again2:
 #ifdef HAVE_SIGINFO
 		if (got_siginfo) {
 			got_siginfo = 0;
@@ -312,13 +312,17 @@ try_again:
 		}
 #endif
 
-		while ((errstr = rec_write(&rec[i], output_str, stdout)) != NULL)
-			if (errno != EAGAIN && errno != EINTR)
+		if ((errstr = rec_write(&rec[i], output_str, stdout)) != NULL) {
+			if (errno == EAGAIN || errno == EINTR)
+				goto try_again2;
+			else
 				errx(1, "%s", errstr);
+		}
 
 		rec_free(&rec[i]);
 	}
 
+#ifndef NDEBUG
 	;; /* LINTED argc is nonnegative, so this works */
 	for (i = 0; i < MAX(argc, 1); i++) {
 		/* LINTED converting i to signed int works */
@@ -329,6 +333,7 @@ try_again:
 
 	assert(memory_cache == memory_cache_initial);
 	rec_assert_released();
+#endif
 
 	exit(0);
 }

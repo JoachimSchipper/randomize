@@ -349,12 +349,8 @@ rec_next(int rfd, struct rec *rec)
 			for (nbytes = 0;
 			     f[rfd].buf_first_write < f[rfd].buf_first_read;
 			     nbytes = write(f[rfd].tmp, &f[rfd].buf_p[f[rfd].buf_first_write], f[rfd].buf_first_read - f[rfd].buf_first_write)) {
-				if (nbytes == -1) {
-					if (errno == EINTR || errno == EAGAIN)
-						continue;
-					else
-						goto err;
-				}
+				if (nbytes == -1)
+					goto err;
 
 				assert(nbytes >= 0);
 				/* LINTED truncating nbytes works, since nbytes <= f[rfd].buf_first_read <= INT_MAX */
@@ -392,8 +388,7 @@ rec_next(int rfd, struct rec *rec)
 
 		/* Read additional data */
 		/* LINTED f[rfd].buf_last - f[rfd].buf_first_read >= 0 as above */
-		while ((nbytes = read(f[rfd].fd, &f[rfd].buf_p[f[rfd].buf_last], f[rfd].buf_size - f[rfd].buf_last)) == -1 && (errno == EINTR || errno == EAGAIN));
-		if (nbytes == -1)
+		if ((nbytes = read(f[rfd].fd, &f[rfd].buf_p[f[rfd].buf_last], f[rfd].buf_size - f[rfd].buf_last)) == -1)
 			goto err;
 		if (nbytes == 0)
 			eof = 1;

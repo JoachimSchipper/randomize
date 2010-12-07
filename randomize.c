@@ -91,7 +91,7 @@ int
 main(int argc, char **argv)
 {
 	const char	*re_str, *delim, *errstr;
-	int		 ch, fd, rfd, error_offset, rv;
+	int		 ch, fd, rfd, error_offset, rv, process_options;
 	unsigned int	 i, j;
 	uint_fast32_t	 r, nrecords, rec_size, rec_no;
 	struct rec	*rec, to_free;
@@ -133,13 +133,19 @@ main(int argc, char **argv)
 	re = NULL;
 	re_extra = NULL;
 	tmp = NULL;
+	rfd = 0;
 
 	/* Defaults */
 	re_str = "\n";
 	delim = "\n";
 	nrecords = UINT32_MAX;
+	process_options = 1;
 
 	while ((ch = getopt(argc, argv, "ae:n:o:")) != -1) {
+		/*
+		 * Note: option processing is *partially* duplicated below,
+		 * search for "== '-'"
+		 */
 		switch (ch) {
 		case 'a':
 			re_str = NULL;
@@ -162,6 +168,10 @@ main(int argc, char **argv)
 			/* NOTREACHED */
 		}
 	}
+	assert(optind > 0);
+	if (strcmp(argv[optind - 1], "--") == 0)
+		/* Stop option processing */
+		process_options = 0;
 	argc -= optind;
 	argv += optind;
 
@@ -187,19 +197,55 @@ main(int argc, char **argv)
 		exit(0);
 	}
 
-	/* XXX Do we need to call maketables()? */
-	if ((re = pcre_compile(re_str, PCRE_DOTALL | PCRE_EXTRA | PCRE_MULTILINE, &errstr, &error_offset, NULL)) == NULL)
-		errx(1, "Failed to parse regular expression %s: %s at %d", re_str, errstr, error_offset);
-	re_extra = pcre_study(re, 0, &errstr);
-	if (errstr != NULL)
-		errx(1, "Failed to study regular expression %s: %s", re_str, errstr);
-
 	if ((rec = malloc((rec_size = 128) * sizeof(*rec))) == NULL)
 		err(1, "Failed to allocate memory for records");
 
 	rec_no = 0;
-	/* LINTED as above */
+	/* LINTED argc is still nonnegative */
 	for (i = 0; i < MAX(argc, 1); i++) {
+		/* Process -e, -o */
+		/* LINTED idem */
+		if (process_options && i < argc && argv[i][0] == '-' &&
+		    argv[i][1] != '\0' && argv[i][2] == '\0') {
+			switch(argv[i][1]) {
+			case 'e':
+				/* LINTED idem */
+				if (i == MAX(argc, 1) - 1)
+					usage();
+				re_str = argv[++i];
+				if (re != NULL && pcre_refcount(re, 0) == 0) {
+					pcre_free(re);
+					pcre_free(re_extra);
+				}
+				re = NULL;
+				break;
+			case 'o':
+				/* LINTED idem */
+				if (i == MAX(argc, 1) - 1)
+					usage();
+				delim = argv[++i];
+				break;
+			case '-':
+				process_options = 0;
+				break;
+			default:
+				usage();
+			}
+			continue;
+		}
+
+		if (re == NULL) {
+			/*
+			 * Reference-counted and freed by the rec_* functions.
+			 */
+			/* XXX Do we need to call maketables()? */
+			if ((re = pcre_compile(re_str, PCRE_DOTALL | PCRE_EXTRA | PCRE_MULTILINE, &errstr, &error_offset, NULL)) == NULL)
+				errx(1, "Failed to parse regular expression %s: %s at %d", re_str, errstr, error_offset);
+			re_extra = pcre_study(re, 0, &errstr);
+			if (errstr != NULL)
+				errx(1, "Failed to study regular expression %s: %s", re_str, errstr);
+		}
+
 		/* Open file */
 		if (argc == 0 || strcmp(argv[i], "-") == 0)
 			fd = 0;
@@ -207,11 +253,8 @@ main(int argc, char **argv)
 			if ((fd = open(argv[i], O_RDONLY, 0644)) == -1)
 				err(1, "Failed to open %s", argv[i]);
 
-		if ((rfd = rec_open(fd, re, re_extra, &memory_cache)) == -1)
+		if ((rfd = rec_open(fd, re, re_extra, delim, &memory_cache)) == -1)
 			err(1, "Failed to rec_open %s", strcmp(argv[i], "-") == 0 ? "stdin" : argv[i]);
-		/* Note that rec_open returns the lowest unused rfd */
-		;; /* LINTED converting rfd to unsigned works */
-		assert(rfd == i);
 
 		/*
 		 * The loop below is a Knuth/Fisher-Yates shuffle, i.e.
@@ -283,7 +326,7 @@ try_again:
 					errx(1, "Failed to read from %s: %s%s",
 					    argc == 0 || strcmp(argv[i], "-") == 0 ? "stdin" : argv[i],
 					    strerror(errno),
-					    errno == EINVAL ? " or error in regular expression" : "");
+					    errno == EINVAL ? ", error in regular expression or zero-length match" : "");
 			}
 
 			if (r < MIN(rec_no, nrecords) && rec_no >= nrecords) {
@@ -312,7 +355,7 @@ try_again2:
 		}
 #endif
 
-		if ((errstr = rec_write(&rec[i], delim, stdout)) != NULL) {
+		if ((errstr = rec_write(&rec[i], NULL, stdout)) != NULL) {
 			if (errno == EAGAIN || errno == EINTR)
 				goto try_again2;
 			else
@@ -323,8 +366,12 @@ try_again2:
 	}
 
 #ifndef NDEBUG
-	;; /* LINTED argc is nonnegative, so this works */
-	for (i = 0; i < MAX(argc, 1); i++) {
+	/*
+	 * Deallocate all rfds. Note that these are guaranteed to start at the
+	 * lowest descriptor.
+	 */
+	/* LINTED argc is nonnegative, so this works */
+	for (i = 0; i <= rfd; i++) {
 		/* LINTED converting i to signed int works */
 		while ((rv = rec_close(i)) != 0 && (errno == EINTR || errno == EAGAIN));
 		if (rv != 0)

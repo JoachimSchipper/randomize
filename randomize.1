@@ -13,7 +13,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd Aug 11, 2010
+.Dd Dec 7, 2010
 .\" To fix
 .Dt RANDOMIZE 1 LOCAL
 .Os
@@ -88,6 +88,13 @@ Output
 .Ar number
 records (or all records, if less).
 .El
+.Pp
+The
+.Fl eo
+flags may be interspersed with other arguments, and will take effect for all files listed after those options on the command line.
+As usual,
+.Fl -
+stops all option processing.
 .Pp
 .Ex -std randomize
 .Sh ENVIRONMENT

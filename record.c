@@ -44,6 +44,7 @@ static struct {
 					 * -1, the struct is unused. */
 	pcre		*re;		/* The regex for this file */
 	pcre_extra	*re_extra;
+	const char	*default_delim;
 	size_t		*memory_cache;	/* How much more memory can we use? */
 	/*
 	 * At any moment, for any i between 0 and f_last,
@@ -114,10 +115,10 @@ static size_t	 w_buf_size = 0;
 static char	 errstr[128];
 
 /* Helper function for the rec_write*() functions */
-static const char *rec_write_raw(const char *delim, const char *p, int ovector_valid, FILE *file) __attribute__((nonnull(1, 4)));
+static const char *rec_write_raw(const char *delim, const char *p, int ovector_valid, FILE *file) __attribute__((nonnull(4)));
 
 int
-rec_open(int fd, pcre *re, pcre_extra *re_extra, size_t *memory_cache)
+rec_open(int fd, pcre *re, pcre_extra *re_extra, const char *default_delim, size_t *memory_cache)
 {
 	sigset_t	 set, oset;
 	struct stat	 sb;
@@ -161,6 +162,7 @@ rec_open(int fd, pcre *re, pcre_extra *re_extra, size_t *memory_cache)
 	f[rfd].fd = f[rfd].tmp = fd;
 	f[rfd].buf_last = f[rfd].buf_first_read = f[rfd].buf_first_write = 0;
 	f[rfd].offset = 0;
+	f[rfd].default_delim = default_delim;
 	f[rfd].memory_cache = memory_cache;
 	if (pcre_fullinfo(f[rfd].re = re, f[rfd].re_extra = re_extra, PCRE_INFO_CAPTURECOUNT, &capturecount) != 0)
 		goto err;
@@ -213,6 +215,9 @@ rec_open(int fd, pcre *re, pcre_extra *re_extra, size_t *memory_cache)
 
 	free(template);
 
+	if (pcre_refcount(f[rfd].re, 0) < UINT16_MAX)
+		pcre_refcount(f[rfd].re, +1);
+
 	return rfd;
 
 err:
@@ -243,6 +248,14 @@ rec_close(int rfd)
 
 	free(f[rfd].buf_p);
 	f[rfd].offset = -1;
+
+	if (pcre_refcount(f[rfd].re, 0) != UINT16_MAX) {
+		assert(pcre_refcount(f[rfd].re, 0) > 0);
+		if (pcre_refcount(f[rfd].re, -1) == 0) {
+			pcre_free(f[rfd].re);
+			pcre_free(f[rfd].re_extra);
+		}
+	}
 
 	assert(f_last > 0);
 	if (rfd == f_last - 1) {
@@ -399,6 +412,12 @@ rec_next(int rfd, struct rec *rec)
 	assert(ovector[0] >= f[rfd].buf_first_read);
 	assert(ovector[1] >= ovector[0]);
 	assert(f[rfd].buf_last >= ovector[1]);
+	
+	if (ovector[1] == ovector[0]) {
+		/* Zero-length match! This would result in an endless loop */
+		errno = EINVAL;
+		goto err;
+	}
 
 	rec_len = ovector[1] - f[rfd].buf_first_read;
 	if (rec != NULL) {
@@ -472,6 +491,11 @@ rec_write(const struct rec *rec, const char *delim, FILE *file)
 	assert(capturecount <= SIZE_MAX / sizeof(*ovector) / 3 - 1);
 	assert((capturecount + 1) * 3 <= ovector_size);
 #endif
+
+	if (delim == NULL) {
+		assert(REC_F(rec).default_delim != NULL);
+		delim = REC_F(rec).default_delim;
+	}
 
 	if (!REC_IS_OFFSET(rec))
 		/* Already in memory */

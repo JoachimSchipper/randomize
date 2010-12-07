@@ -43,10 +43,14 @@ struct rec {
  * spooled to disk) by rec_next(); malloc overhead will be estimated, but any
  * buffers used by rec_fopen() will not be tracked.
  *
- * Returns the lowest unused record file descriptor ("rfd") on success;
- * otherwise, returns -1 and sets errno as for malloc(3) or mkstemp(3).
+ * For default_delim, see rec_write().
+ *
+ * Returns the lowest unused record file descriptor ("rfd") on success, and
+ * increases the internal reference count of re by 1 (if not maximal; see
+ * pcre_refcount()). Otherwise, returns -1 and sets errno as for malloc(3) or
+ * mkstemp(3).
  */
-int rec_open(int fd, pcre *re, pcre_extra *re_extra, size_t *memory_cache) __attribute__((nonnull(2, 3)));
+int rec_open(int fd, pcre *re, pcre_extra *re_extra, const char *default_delim, size_t *memory_cache) __attribute__((nonnull(2, 3, 5)));
 
 /*
  * Get next record. If rec is NULL, the data is discarded instead.
@@ -62,13 +66,15 @@ int rec_next(int rfd, struct rec *rec);
  * Write record to FILE *.
  *
  * delim is an output template that can contain escape sequences, as described
- * in the man page (for the -o option).
+ * in the man page (for the -o option). If delim is NULL, default_delim from
+ * rec_open() will be used instead; in this case, default_delim must have been
+ * a valid pointer.
  *
  * Returns NULL on success; otherwise, returns an error message and sets errno
  * as for malloc(3), putc(3), fwrite(3), or read(2). Where appropriate,
  * strerror(errno) is already incorporated in the error message.
  */
-const char *rec_write(const struct rec *rec, const char *delim, FILE *file) __attribute__((nonnull(1, 2, 3)));
+const char *rec_write(const struct rec *rec, const char *delim, FILE *file) __attribute__((nonnull(1, 3)));
 
 /*
  * Write a string to FILE *, processing it as the 'delim' argument above.
@@ -80,6 +86,11 @@ const char *rec_write_str(const char *str, FILE *file) __attribute__((nonnull(1,
 
 /*
  * Free all resources associated with rec (but not rec itself).
+ *
+ * This decreases the internal reference count of the re argument used to open
+ * rec by 1 (if not maximal) and pcre_free()s re and re_extra if the reference
+ * count reaches zero. It is an error to call rec_free() while the reference
+ * count of re is 0.
  *
  * Does nothing if rec is NULL.
  */

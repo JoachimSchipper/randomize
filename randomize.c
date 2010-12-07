@@ -90,7 +90,7 @@ handle_siginfo(int sig)
 int
 main(int argc, char **argv)
 {
-	const char	*re_str, *output_str, *errstr;
+	const char	*re_str, *delim, *errstr;
 	int		 ch, fd, rfd, error_offset, rv;
 	unsigned int	 i, j;
 	uint_fast32_t	 r, nrecords, rec_size, rec_no;
@@ -136,7 +136,7 @@ main(int argc, char **argv)
 
 	/* Defaults */
 	re_str = "\n";
-	output_str = "\n";
+	delim = "\n";
 	nrecords = UINT32_MAX;
 
 	while ((ch = getopt(argc, argv, "ae:n:o:")) != -1) {
@@ -154,7 +154,7 @@ main(int argc, char **argv)
 				errx(1, "number of records is %s: %s", errstr, optarg);
 			break;
 		case 'o':
-			output_str = optarg;
+			delim = optarg;
 			break;
 		default:
 			assert(ch == '?');
@@ -178,7 +178,7 @@ main(int argc, char **argv)
 
 			if (printf("%s", argv[r]) == -1)
 				err(1, "Failed to print");
-			if ((errstr = rec_write_str(output_str, stdout)) != NULL)
+			if ((errstr = rec_write_str(delim, stdout)) != NULL)
 				errx(1, "%s", errstr);
 
 			argv[r] = argv[--j];
@@ -312,7 +312,7 @@ try_again2:
 		}
 #endif
 
-		if ((errstr = rec_write(&rec[i], output_str, stdout)) != NULL) {
+		if ((errstr = rec_write(&rec[i], delim, stdout)) != NULL) {
 			if (errno == EAGAIN || errno == EINTR)
 				goto try_again2;
 			else

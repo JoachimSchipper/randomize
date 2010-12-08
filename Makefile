@@ -27,7 +27,7 @@ LINT=lint -ceFHrx -DLINT -I/usr/local/include -L/usr/local/lib -lpcre ${DEFINES}
 OBJS=compat.o record.o randomize.o
 # For systems with groff but no mandoc, use
 #MANDOC=groff -mandoc
-MANDOC=mandoc
+MANDOC?=mandoc
 
 all: randomize randomize.cat1
 

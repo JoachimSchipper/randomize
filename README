@@ -13,8 +13,8 @@ This software requires PCRE (the Perl-compatible regular expression library)
 and should run on any POSIX-compatible system.
 
 Tweak the DEFINES variable in the Makefile if your system does not have
-arc4random(), srandomdev(), SIGINFO or vis(). *BSD/Mac OS X should have all of
-these features; Linux only has SIGINFO.
+arc4random_uniform(), srandomdev(), SIGINFO or vis(). *BSD/Mac OS X should have
+all of these features; Linux only has SIGINFO.
 Set the MANDOC variable in the Makefile to groff -mandoc if your system does
 not have mandoc.
 

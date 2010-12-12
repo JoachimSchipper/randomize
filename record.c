@@ -355,7 +355,6 @@ rec_next(int rfd, struct rec *rec)
 		assert(f[rfd].buf_first_read >= f[rfd].buf_first_write);
 		assert(f[rfd].buf_last >= f[rfd].buf_first_read);
 		assert(f[rfd].buf_size >= f[rfd].buf_last);
-		assert(INT_MAX >= f[rfd].buf_size);
 		if (f[rfd].tmp != f[rfd].fd) {
 			/* Flush processed data to disk */
 			/* LINTED converting (f[rfd].buf_first_read - i) to unsigned works */

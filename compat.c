@@ -58,7 +58,7 @@
 char *
 vis(char *dst, int c, int flag, int nextc)
 {
-	if (isvisible(c)) {
+	if (isvisible(c) && (flag & VIS_ALL) == 0) {
 		*dst++ = c;
 		if (c == '\\' && (flag & VIS_NOSLASH) == 0)
 			*dst++ = '\\';

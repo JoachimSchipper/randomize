@@ -323,7 +323,7 @@ rec_next(int rfd, struct rec *rec)
 	 * this code.
 	 */
 	eof = 0;
-	while ((rv = pcre_exec(f[rfd].re, f[rfd].re_extra, f[rfd].buf_p, f[rfd].buf_last - f[rfd].buf_first_read, f[rfd].buf_first_read, eof ? 0 : PCRE_NOTEOL, ovector, ovector_size)) < 0) {
+	while ((rv = pcre_exec(f[rfd].re, f[rfd].re_extra, f[rfd].buf_p, f[rfd].buf_last, f[rfd].buf_first_read, eof ? 0 : PCRE_NOTEOL, ovector, ovector_size)) < 0) {
 		if (rv != PCRE_ERROR_NOMATCH) {
 			errno = EINVAL;
 			goto err;

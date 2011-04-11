@@ -18,11 +18,15 @@
  * Various randomization algorithms.
  */
 
+/* XXX for pick
 #ifndef HAVE_ARC4RANDOM
 #ifndef HAVE_SRANDOMDEV
 #include <sys/types.h>
 #endif
-#endif
+#endif */
+/* XXX for pick */
+#include <sys/types.h>
+#include <sys/stat.h>
 
 #include <assert.h>
 #include <err.h>
@@ -91,14 +95,17 @@ int
 main(int argc, char **argv)
 {
 	const char	*re_str, *delim, *errstr;
-	int		 ch, fd, rfd, error_offset, rv, process_options;
+	int		 ch, fd, rfd, error_offset, rv, process_options, pick,
+			 ovector[100 /* XXX */], ovector_size = 100;
+	char		 buf[1];
 	unsigned int	 i, j;
 	uint_fast32_t	 r, nrecords, rec_size, rec_no;
-	struct rec	*rec, to_free;
+	struct rec	*rec, to_free, hackish_rec;
 	void		*tmp;
 	pcre		*re;
 	pcre_extra	*re_extra;
 	size_t		 memory_cache;
+	struct stat	 stat_data;
 #ifndef NDEBUG
 	int		 to_free_valid;
 #endif
@@ -140,8 +147,9 @@ main(int argc, char **argv)
 	delim = "\n";
 	nrecords = UINT32_MAX;
 	process_options = 1;
+	pick = 0;
 
-	while ((ch = getopt(argc, argv, "ae:n:o:")) != -1) {
+	while ((ch = getopt(argc, argv, "ae:n:o:p")) != -1) {
 		/*
 		 * Note: option processing is *partially* duplicated below,
 		 * search for "== '-'"
@@ -162,6 +170,10 @@ main(int argc, char **argv)
 		case 'o':
 			delim = optarg;
 			break;
+		case 'p':
+			/* XXX Replace by clever automatic guessing */
+			pick = 1;
+			break;
 		default:
 			assert(ch == '?');
 			usage();
@@ -180,6 +192,10 @@ main(int argc, char **argv)
 		 * Skip the usual regex-based stuff and randomize the arguments
 		 * (instead of treating them as file names).
 		 */
+
+		if (pick)
+			usage();
+
 		/* LINTED argc is nonnegative, so this works */
 		j = argc;
 		/* LINTED idem */
@@ -209,7 +225,10 @@ main(int argc, char **argv)
 		    argv[i][1] != '\0' && argv[i][2] == '\0') {
 			switch(argv[i][1]) {
 			case 'e':
-				/* LINTED idem */
+				if (pick)
+					usage();
+
+				;; /* LINTED idem */
 				if (i == MAX(argc, 1) - 1)
 					usage();
 				re_str = argv[++i];
@@ -220,7 +239,10 @@ main(int argc, char **argv)
 				re = NULL;
 				break;
 			case 'o':
-				/* LINTED idem */
+				if (pick)
+					usage();
+
+				;; /* LINTED idem */
 				if (i == MAX(argc, 1) - 1)
 					usage();
 				delim = argv[++i];
@@ -252,6 +274,51 @@ main(int argc, char **argv)
 		else
 			if ((fd = open(argv[i], O_RDONLY, 0644)) == -1)
 				err(1, "Failed to open %s", argv[i]);
+
+		if (pick) {
+			/* XXX Needs updating */
+			assert(nrecords == 1);
+			assert(argc <= 1);
+
+			/* XXX Again, how to check for seekable? */
+			if (fstat(fd, &stat_data) != 0)
+				err(1, "Failed to fstat()");
+			if (!S_ISREG(stat_data.st_mode))
+				err(1, "File not seekable");
+
+			while (1) {
+				r = random_uniform(stat_data.st_size);
+
+				/* XXX Read properly */
+				if (pread(fd, buf, sizeof(buf), r)
+				    < sizeof(buf))
+					err(1, "Failed to read!");
+
+				/* XXX PCRE_NOTEOL */
+				/* XXX size of ovector should be calculated */
+				if (r != 0 && (rv = pcre_exec(re, re_extra, buf, sizeof(buf), 0, PCRE_NOTEOL | PCRE_ANCHORED, ovector, ovector_size)) < 0) {
+					if (rv != PCRE_ERROR_NOMATCH)
+						err(1, "Regex error");
+
+					/* No match, try again */
+					continue;
+				}
+
+				/* Actually matched, get record */
+				/* XXX hackish */
+				if (lseek(fd, r + (r != 0), SEEK_SET) == -1)
+					err(1, "Failed to seek");
+				if ((rfd = rec_open(fd, re, re_extra, delim,
+				    &memory_cache)) == -1)
+					err(1, "Failed to rec_open()");
+				if (rec_next(rfd, &hackish_rec) != 0)
+					err(1, "Failed to rec_read()");
+
+				rec_write(&hackish_rec, NULL, stdout);
+				exit(0);
+			}
+			/* NOTREACHED */
+		}
 
 		if ((rfd = rec_open(fd, re, re_extra, delim, &memory_cache)) == -1)
 			err(1, "Failed to rec_open %s", strcmp(argv[i], "-") == 0 ? "stdin" : argv[i]);
@@ -310,6 +377,7 @@ try_again:
 				if (errno == EAGAIN || errno == EINTR)
 					goto try_again;
 				else if (errno == 0) {
+#ifndef NDEBUG
 					if (r < MIN(rec_no, nrecords) && rec_no >= nrecords) {
 						/*
 						 * We don't want to free
@@ -317,10 +385,9 @@ try_again:
 						 * all...
 						 */
 						assert(to_free_valid == 1);
-#ifndef NDEBUG
 						to_free_valid = 0;
-#endif
 					}
+#endif
 					break;
 				} else
 					errx(1, "Failed to read from %s: %s%s",

@@ -79,6 +79,9 @@ test: randomize test/1.in test/1.out test/2.in test/2.out test/3.in test/3.out t
 		diff -u test/2.out test/2.result
 	cat test/2.in | ./randomize -n 4096 | sort > test/2.result &&\
 		diff -u test/2.out test/2.result
+	# XXX Integrate into previous
+	./randomize -pn1 test/1.in >/dev/null
+	./randomize -pn1 < test/1.in >/dev/null
 
 ${OBJS}: compat.h record.h
 

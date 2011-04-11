@@ -161,7 +161,6 @@ rec_open(int fd, pcre *re, pcre_extra *re_extra, const char *default_delim, size
 
 	f[rfd].fd = f[rfd].tmp = fd;
 	f[rfd].buf_last = f[rfd].buf_first_read = f[rfd].buf_first_write = 0;
-	f[rfd].offset = 0;
 	f[rfd].default_delim = default_delim;
 	f[rfd].memory_cache = memory_cache;
 	if (pcre_fullinfo(f[rfd].re = re, f[rfd].re_extra = re_extra, PCRE_INFO_CAPTURECOUNT, &capturecount) != 0)
@@ -190,7 +189,12 @@ rec_open(int fd, pcre *re, pcre_extra *re_extra, const char *default_delim, size
 		fstat(f[rfd].fd, &sb);
 	assert(rv == 0);
 	/* XXX Is there a way to check for "seek works in a sane fashion"? */
-	if (!S_ISREG(sb.st_mode)) {
+	if (S_ISREG(sb.st_mode)) {
+		f[rfd].offset = lseek(f[rfd].fd, 0, SEEK_CUR);
+
+		assert(f[rfd].offset != -1);
+	} else {
+		f[rfd].offset = 0;
 		if ((prefix = getenv("TMPDIR")) == NULL || prefix[0] == '\0')
 			prefix = "/tmp";
 		;; /* LINTED conversion from strlen(prefix) to int is ok */

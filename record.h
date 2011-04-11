@@ -37,7 +37,7 @@ struct rec {
 };
 
 /*
- * Open a file for reading records.
+ * Open a file for reading records (from the current file position).
  *
  * Up to *memory_cache bytes of records will be kept in memory (instead of
  * spooled to disk) by rec_next(); malloc overhead will be estimated, but any

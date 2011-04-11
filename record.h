@@ -109,10 +109,6 @@ void rec_free(struct rec *rec);
 int rec_close(int rfd);
 
 /*
- * assert() that all rec_* resources have been deallocated, for debugging only.
+ * assert() that all rec_* resources have been deallocated.
  */
-#ifndef NDEBUG
 void rec_assert_released(void);
-#else
-#define rec_assert_released() ((void) 0)
-#endif

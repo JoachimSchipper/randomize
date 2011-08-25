@@ -196,7 +196,7 @@ main(int argc, char **argv)
 		if (pick)
 			usage();
 
-		/* LINTED argc is nonnegative, so this works */
+		;; /* LINTED argc is nonnegative, so this works */
 		j = argc;
 		/* LINTED idem */
 		while (j > (nrecords > argc ? 0 : argc - nrecords)) {
@@ -287,6 +287,7 @@ main(int argc, char **argv)
 				err(1, "File not seekable");
 
 			while (1) {
+				/* XXX Handle files longer than UINT32_MAX */
 				r = random_uniform(stat_data.st_size);
 
 				/* XXX Read properly */

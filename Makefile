@@ -87,6 +87,12 @@ test: randomize test/1.in test/1.out test/2.in test/2.out test/3.in test/3.out t
 	# XXX Integrate into previous
 	./randomize -pn1 test/1.in >/dev/null
 	./randomize -pn1 < test/1.in >/dev/null
+	for i in $$(for i in $$(jot 120 0 0); do ./randomize -pn1 test/1.in; done | sort | uniq -c | awk '{print $$1}'); do \
+		if [ $$i -lt 20 -o $$i -gt 60 ]; then \
+			echo "This seems unlikely." >&2; \
+			exit 1; \
+		fi; \
+	done
 
 ${OBJS}: compat.h record.h rnd.h
 

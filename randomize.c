@@ -319,7 +319,7 @@ main(int argc, char **argv)
 				    &memory_cache)) == -1)
 					err(1, "Failed to rec_open()");
 				if (rec_next(rfd, &hackish_rec) != 0)
-					err(1, "Failed to rec_read()");
+					err(1, "Failed to rec_next()");
 
 				rec_write(&hackish_rec, NULL, stdout);
 				exit(0);

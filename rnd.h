@@ -14,7 +14,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* Needs off_t, accessible via e.g. <stdlib.h> */
+/* Needs <inttypes.h> for uintmax_t */
 
-/* Return a random nonnegative off_t smaller than upper_bound */
-off_t random_uniform(off_t upper_bound);
+/* Return a uniformly random value smaller than upper_bound */
+uintmax_t random_uniform(uintmax_t upper_bound);

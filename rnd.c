@@ -20,31 +20,24 @@
 
 #include "rnd.h"
 
-off_t
-random_uniform(const off_t upper_bound)
+uintmax_t
+random_uniform(const uintmax_t upper_bound)
 {
-	off_t			 r, r_max, reroll_at;
+	uintmax_t		 r, r_max, reroll_at;
 	int			 i;
 #ifndef HAVE_ARC4RANDOM
 	int			 extra_bits;
 #endif
 
-	do {
-		/*
-		 * Set r_max to maximum value of an off_t
-		 */
-		r_max = 0;
-		for (i = 0; i < sizeof(r) / sizeof(uint32_t) - 1; i++)
-			r_max += (off_t) UINT32_MAX << i * 32;
-		r_max += (off_t) INT32_MAX << i * 32;
+	r_max = UINTMAX_MAX;
 
+	do {
 		/* Optionally reduce r_max; set r to a random value in 0..r_max */
 #ifdef HAVE_ARC4RANDOM
 		if (upper_bound > UINT32_MAX) {
 			r = 0;
-			for (i = 0; i < sizeof(r) / sizeof(uint32_t) - 1; i++)
-				r += (off_t) arc4random() << (i * 32);
-			r += ((off_t) arc4random() % (1U << 31)) << i * 32;
+			for (i = 0; i < sizeof(r) / sizeof(uint32_t); i++)
+				r += (uintmax_t)arc4random() << (i * 32);
 		} else
 			return arc4random_uniform(upper_bound);
 #else
@@ -53,12 +46,13 @@ random_uniform(const off_t upper_bound)
 			extra_bits = random();
 
 			r = 0;
-			for (i = 0; i < sizeof(r) / sizeof(uint32_t) - 1; i++) {
-				r += (off_t) random() << i * 32;
+			for (i = 0; i < sizeof(r) / sizeof(uint32_t); i++) {
+				r += (uintmax_t)random() << i * 32;
 				/* Fill in 32nd bit from extra_bits */
-				r += (extra_bits & (off_t) 1 << i) >> i << i * 32 << 31;
+				r += (extra_bits & (uintmax_t)1 << i) >> i <<
+				    i * 32 << 31;
 			}
-			r += (off_t) random() << i * 32;
+			r += (uintmax_t) random() << i * 32;
 		} else if (upper_bound == 0) {
 			/* Prevent % 0 below */
 			return 0;
@@ -68,7 +62,6 @@ random_uniform(const off_t upper_bound)
 		}
 #endif
 
-		assert(r >= 0);
 		assert(r < r_max);
 
 		/* If r < reroll_at, we can just return the modulus */
@@ -98,19 +91,21 @@ main(void)
 		/* gcc complains about this; it's wrong */
 		printf("%02ju:", i);
 		for (j = 0; j < N_OUTPUT; j++)
-			printf(" %02jd", (intmax_t) random_uniform(i));
+			printf(" %02jd", (intmax_t)random_uniform(i));
 		printf("\n");
 	}
 
-	if (sizeof(off_t) * CHAR_BIT > 32) {
-		for (i = (intmax_t) UINT32_MAX + 1; i < (intmax_t) (1 << 16) * UINT32_MAX; i *= 2) {
-			printf("%012jx:", (uintmax_t) i);
+	if (sizeof(uintmax_t) * CHAR_BIT > 32) {
+		for (i = (uintmax_t)UINT32_MAX + 1;
+		    i < (uintmax_t)(1 << 16) * UINT32_MAX;
+		    i *= 2) {
+			printf("%012jx:", (uintmax_t)i);
 			for (j = 0; j < N_OUTPUT; j++)
-				printf(" %012jx", (uintmax_t) random_uniform(i));
+				printf(" %012jx", (uintmax_t)random_uniform(i));
 			printf("\n");
 		}
 	} else
-		printf("sizeof(off_t) = %zu\n", sizeof(off_t));
+		printf("sizeof(uintmax_t) = %zu\n", sizeof(uintmax_t));
 
 	return 0;
 }

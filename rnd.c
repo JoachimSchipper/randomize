@@ -24,7 +24,7 @@ uintmax_t
 random_uniform(const uintmax_t upper_bound)
 {
 	uintmax_t		 r, r_max, reroll_at;
-	int			 i;
+	size_t			 i;
 #ifndef HAVE_ARC4RANDOM
 	int			 extra_bits;
 #endif

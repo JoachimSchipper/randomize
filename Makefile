@@ -24,21 +24,26 @@ CFLAGS=-std=c99 -pedantic -W -Wall -Wno-sign-compare -Wno-unused-parameter -Wbad
 # -Wredundant-decls
 LDFLAGS=-L/usr/local/lib -lpcre
 LINT=lint -ceFHrx -DLINT -I/usr/local/include -L/usr/local/lib -lpcre ${DEFINES}
-OBJS=compat.o record.o randomize.o
+OBJS=compat.o record.o randomize.o rnd.o
 # For systems with groff but no mandoc, use
 #MANDOC=groff -mandoc
 MANDOC?=mandoc
 
-all: randomize randomize.cat1
+all: randomize randomize.cat1 rnd
 
 clean:
-	rm -f randomize randomize.cat1 ${OBJS} test/{1,2,3,4,5}.result
+	rm -f randomize randomize.cat1 ${OBJS} test/{1,2,3,4,5}.result rnd
 
 lint:
 	${LINT} ${OBJS:.o=.c}
 
 randomize: ${OBJS}
 	${CC} ${CFLAGS} ${LDFLAGS} -o randomize ${OBJS}
+
+rnd: rnd.c rnd.h
+	@# GCC complains about some *stupid* things here (note that we build
+	@# the .o with all warnings)
+	${CC} ${CFLAGS} -DTESTSUITE -Wno-format -o rnd rnd.c
 
 test: randomize test/1.in test/1.out test/2.in test/2.out test/3.in test/3.out test/4a.in test/4b.in test/4c.in test/4.out test/5.in test/5.out
 	# Simplest case, but file has no eol
@@ -83,7 +88,7 @@ test: randomize test/1.in test/1.out test/2.in test/2.out test/3.in test/3.out t
 	./randomize -pn1 test/1.in >/dev/null
 	./randomize -pn1 < test/1.in >/dev/null
 
-${OBJS}: compat.h record.h
+${OBJS}: compat.h record.h rnd.h
 
 randomize.cat1: randomize.1
 	${MANDOC} -Tascii randomize.1 > randomize.cat1

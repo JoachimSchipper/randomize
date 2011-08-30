@@ -50,6 +50,7 @@
 
 #include "compat.h"
 #include "record.h"
+#include "rnd.h"
 
 #ifndef __GNUC__
 #ifndef __attribute__
@@ -100,6 +101,7 @@ main(int argc, char **argv)
 	char		 buf[1];
 	unsigned int	 i, j;
 	uint_fast32_t	 r, nrecords, rec_size, rec_no;
+	off_t		 r_off;
 	struct rec	*rec, to_free, hackish_rec;
 	void		*tmp;
 	pcre		*re;
@@ -287,17 +289,20 @@ main(int argc, char **argv)
 				err(1, "File not seekable");
 
 			while (1) {
-				/* XXX Handle files longer than UINT32_MAX */
-				r = random_uniform(stat_data.st_size);
+				r_off = random_uniform(stat_data.st_size);
 
 				/* XXX Read properly */
-				if (pread(fd, buf, sizeof(buf), r)
+				if (pread(fd, buf, sizeof(buf), r_off)
 				    < sizeof(buf))
 					err(1, "Failed to read!");
 
 				/* XXX PCRE_NOTEOL */
 				/* XXX size of ovector should be calculated */
-				if (r != 0 && (rv = pcre_exec(re, re_extra, buf, sizeof(buf), 0, PCRE_NOTEOL | PCRE_ANCHORED, ovector, ovector_size)) < 0) {
+				if (r_off != 0 && (rv = pcre_exec(re, re_extra,
+						    buf, sizeof(buf), 0,
+						    PCRE_NOTEOL |
+						    PCRE_ANCHORED, ovector,
+						    ovector_size)) < 0) {
 					if (rv != PCRE_ERROR_NOMATCH)
 						err(1, "Regex error");
 
@@ -307,7 +312,8 @@ main(int argc, char **argv)
 
 				/* Actually matched, get record */
 				/* XXX hackish */
-				if (lseek(fd, r + (r != 0), SEEK_SET) == -1)
+				if (lseek(fd, r_off + (r_off != 0), SEEK_SET)
+				    == -1)
 					err(1, "Failed to seek");
 				if ((rfd = rec_open(fd, re, re_extra, delim,
 				    &memory_cache)) == -1)

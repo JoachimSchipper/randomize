@@ -63,12 +63,3 @@
 
 char	*vis(char *, int, int, int);
 #endif /* #ifdef HAVE_VIS ... #else ... #endif */
-
-#ifdef HAVE_ARC4RANDOM
-#define random_uniform(max) arc4random_uniform(max)
-#else
-/*
- * Return a random number chosen uniformly from 0, 1, ..., max - 1.
- */
-uint32_t random_uniform(uint32_t max);
-#endif

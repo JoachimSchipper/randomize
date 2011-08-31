@@ -623,7 +623,7 @@ output_match:
 							snprintf(errstr, sizeof(errstr), "The argument to -o contains \\%d, but ", value);
 
 						if (p != NULL)
-							strlcat(errstr, "the last argument is not terminated", sizeof(errstr));
+							strlcat(errstr, "the last record is not terminated", sizeof(errstr));
 						else
 							strlcat(errstr, "you passed -a", sizeof(errstr));
 

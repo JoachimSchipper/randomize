@@ -46,21 +46,10 @@ rnd: rnd.c rnd.h
 	${CC} ${CFLAGS} -DTESTSUITE -Wno-format -o rnd rnd.c
 
 test: randomize test/1.in test/1.out test/2.in test/2.out test/3.in test/3.out test/4a.in test/4b.in test/4c.in test/4.out test/5.in test/5.out
-	# Simplest case, but file has no eol
+	# Simple, but file has no eol
 	./randomize test/1.in | sort > test/1.result &&\
 		diff -u test/1.out test/1.result
-	# Error on no end of line
-	./randomize -e '\n' -o '&' test/1.in >/dev/null &&\
-		echo 'This is not supposed to work' >&2 &&\
-		exit 1 || true
-	# Error on zero-width match
-	./randomize -e '.*?' -o '&' test/1.in >/dev/null &&\
-		echo 'This is not supposed to work' >&2 &&\
-		exit 1 || true
-	# Randomize arguments
-	./randomize -e 'ignored' -o '\n' -an 10 `cat test/1.in` | sort > test/1.result &&\
-		diff -u test/1.out test/1.result
-	# Reading from pipe (long file, partially in memory)
+	# Reading from pipe (file too long for cache)
 	cat test/2.in | ./randomize | sort > test/2.result &&\
 		diff -u test/2.out test/2.result
 	# Long lines
@@ -75,6 +64,14 @@ test: randomize test/1.in test/1.out test/2.in test/2.out test/3.in test/3.out t
 	# Multiple files, changing -e/-o midway
 	cat test/4a.in | (cd test/ && ../randomize -o '&' - -e '(.*?)([ \t])' -o '\1 [5.in]\n' 5.in -e '\n' -o '\n' -- -e) | sort > test/6.result &&\
 		diff -u test/6.out test/6.result
+	# Error on no end of line
+	./randomize -o '&' test/1.in >/dev/null &&\
+		echo 'This is not supposed to work' >&2 &&\
+		exit 1 || true
+	# Error on zero-width match
+	./randomize -e '.*?' -o '&' test/1.in >/dev/null &&\
+		echo 'This is not supposed to work' >&2 &&\
+		exit 1 || true
 	# Requesting a few lines
 	./randomize -n 1 test/2.in >/dev/null || exit 1;
 	cat test/2.in | ./randomize -n 1 >/dev/null || exit 1;
@@ -87,11 +84,21 @@ test: randomize test/1.in test/1.out test/2.in test/2.out test/3.in test/3.out t
 	# XXX Integrate into previous
 	./randomize -pn1 test/1.in >/dev/null
 	./randomize -pn1 < test/1.in >/dev/null
-	for i in $$(for i in $$(jot 120 0 0); do ./randomize -pn1 test/1.in; done | sort | uniq -c | awk '{print $$1}'); do \
-		if [ $$i -lt 20 -o $$i -gt 60 ]; then \
-			echo "This seems unlikely." >&2; \
-			exit 1; \
-		fi; \
+	# Randomize arguments
+	./randomize -e 'ignored' -o '\n' -an 10 `cat test/1.in` | sort > test/1.result &&\
+		diff -u test/1.out test/1.result
+	# Statistical randomness test
+	for i in $$(for i in $$(jot 120 0 0); do ./randomize -pn1 test/1.in; done | sort | uniq -c | awk '{print $$1}'); do\
+		if [ $$i -lt 20 -o $$i -gt 60 ]; then\
+			echo "This seems unlikely." >&2;\
+			exit 1;\
+		fi;\
+	done
+	for i in $$(for i in $$(jot 120 0 0); do ./randomize -n1 test/1.in; done | sort | uniq -c | awk '{print $$1}'); do\
+		if [ $$i -lt 20 -o $$i -gt 60 ]; then\
+			echo "This seems unlikely." >&2;\
+			exit 1;\
+		fi;\
 	done
 
 ${OBJS}: compat.h record.h rnd.h

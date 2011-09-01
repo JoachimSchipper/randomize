@@ -39,6 +39,7 @@ random_uniform(const uintmax_t upper_bound)
 			for (i = 0; i < sizeof(r) / sizeof(uint32_t); i++)
 				r += (uintmax_t)arc4random() << (i * 32);
 		} else
+			/* LINTED upper_bound fits, by condition above */
 			return arc4random_uniform(upper_bound);
 #else
 		if (upper_bound > INT32_MAX) {

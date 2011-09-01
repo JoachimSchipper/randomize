@@ -202,6 +202,7 @@ main(int argc, char **argv)
 		j = argc;
 		/* LINTED idem */
 		while (j > (nrecords > argc ? 0 : argc - nrecords)) {
+			/* LINTED random_uniform(j) < j, so fits */
 			r = random_uniform(j);
 
 			if (printf("%s", argv[r]) == -1)
@@ -289,9 +290,11 @@ main(int argc, char **argv)
 				err(1, "File not seekable");
 
 			while (1) {
+				/* LINTED 0 <= r_off < st_size; conversion ok */
 				r_off = random_uniform(stat_data.st_size);
 
 				/* XXX Read properly */
+				/* LINTED r_off is nonnegative */
 				if (pread(fd, buf, sizeof(buf), r_off)
 				    < sizeof(buf))
 					err(1, "Failed to read!");
@@ -356,6 +359,7 @@ main(int argc, char **argv)
 				rec_size *= 2;
 			}
 
+			;; /* LINTED 0 <= r < rec_no + 1; conversion ok */
 			r = random_uniform(rec_no + 1);
 			if (r < MIN(rec_no, nrecords)) {
 				/* Overwriting valid data */

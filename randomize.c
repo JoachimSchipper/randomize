@@ -97,8 +97,10 @@ main(int argc, char **argv)
 {
 	const char	*re_str, *delim, *errstr;
 	int		 ch, fd, rfd, error_offset, rv, process_options, pick,
-			 ovector[100 /* XXX */], ovector_size = 100;
+			 ovector[100 /* XXX */], ovector_size = 100,
+			 first_record;
 	char		 buf[1];
+	ssize_t		 buf_len;
 	unsigned int	 i, j;
 	uint_fast32_t	 r, nrecords, rec_size, rec_no;
 	off_t		 r_off;
@@ -290,20 +292,27 @@ main(int argc, char **argv)
 				err(1, "File not seekable");
 
 			while (1) {
-				/* LINTED 0 <= r_off < st_size; conversion ok */
-				r_off = random_uniform(stat_data.st_size);
+				first_record = 0;
+				/* LINTED 0 <= random_uniform() <= st_size */
+				r_off = random_uniform(
+				    (uintmax_t)stat_data.st_size + 1);
+				if (r_off == stat_data.st_size) {
+					first_record = 1;
+					r_off = 0;
+				}
 
 				/* XXX Read properly */
-				/* LINTED r_off is nonnegative */
-				if (pread(fd, buf, sizeof(buf), r_off)
-				    < sizeof(buf))
+				assert(sizeof(buf) <= INT_MAX);
+				if ((buf_len = pread(fd, buf, sizeof(buf),
+						    r_off)) == -1)
 					err(1, "Failed to read!");
 
 				/* XXX PCRE_NOTEOL */
 				/* XXX size of ovector should be calculated */
-				if (r_off != 0 && (rv = pcre_exec(re, re_extra,
-						    buf, sizeof(buf), 0,
-						    PCRE_NOTEOL |
+				;; /* LINTED converting buf_len to int works */
+				if (!first_record && (rv = pcre_exec(re,
+						    re_extra, buf, buf_len,
+						    0, PCRE_NOTEOL |
 						    PCRE_ANCHORED, ovector,
 						    ovector_size)) < 0) {
 					if (rv != PCRE_ERROR_NOMATCH)
@@ -314,8 +323,10 @@ main(int argc, char **argv)
 				}
 
 				/* Actually matched, get record */
+				/* r_off < stat_data.st_size, so no overflow */
 				/* XXX hackish */
-				if (lseek(fd, r_off + (r_off != 0), SEEK_SET)
+				if (lseek(fd, first_record ? 0 : r_off + 1,
+					    SEEK_SET)
 				    == -1)
 					err(1, "Failed to seek");
 				if ((rfd = rec_open(fd, re, re_extra, delim,

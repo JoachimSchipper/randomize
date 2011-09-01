@@ -85,16 +85,16 @@ test: randomize test/1.in test/1.out test/2.in test/2.out test/3.in test/3.out t
 	./randomize -pn1 test/1.in >/dev/null
 	./randomize -pn1 < test/1.in >/dev/null
 	# Randomize arguments
-	./randomize -e 'ignored' -o '\n' -an 10 `cat test/1.in` | sort > test/1.result &&\
-		diff -u test/1.out test/1.result
+	./randomize -e 'ignored' -o '\n' -an 10 `cat test/1.in` | sort > test/7.result &&\
+		diff -u test/7.out test/7.result
 	# Statistical randomness test
-	for i in $$(for i in $$(jot 120 0 0); do ./randomize -pn1 test/1.in; done | sort | uniq -c | awk '{print $$1}'); do\
+	for i in $$(for i in $$(jot 120 0 0); do ./randomize -n1 test/1.in; done | sort | uniq -c | awk '{print $$1}'); do\
 		if [ $$i -lt 20 -o $$i -gt 60 ]; then\
 			echo "This seems unlikely." >&2;\
 			exit 1;\
 		fi;\
 	done
-	for i in $$(for i in $$(jot 120 0 0); do ./randomize -n1 test/1.in; done | sort | uniq -c | awk '{print $$1}'); do\
+	for i in $$(for i in $$(jot 120 0 0); do ./randomize -pn1 test/1.in; done | sort | uniq -c | awk '{print $$1}'); do\
 		if [ $$i -lt 20 -o $$i -gt 60 ]; then\
 			echo "This seems unlikely." >&2;\
 			exit 1;\

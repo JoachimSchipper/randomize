@@ -266,9 +266,16 @@ rec_close(int rfd)
 		if (rfd < f_size / 4) {
 			/* Shrink f[] */
 			/* LINTED converting rfd to size_t works */
-			if ((tmp = realloc(f, rfd * sizeof(*f))) != NULL) {
-				f = tmp;
+			if (rfd == 0) {
+				free(f);
+				f = NULL;
 				f_last = f_size = rfd;
+			} else {
+				if ((tmp = realloc(f, rfd * sizeof(*f)))
+				    == NULL) {
+					f = tmp;
+					f_last = f_size = rfd;
+				}  /* else hold onto a bit more memory than needed */
 			}
 		}
 	}

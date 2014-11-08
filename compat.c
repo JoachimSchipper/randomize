@@ -42,7 +42,7 @@
 
 #define	isoctal(c)	(((u_char)(c)) >= '0' && ((u_char)(c)) <= '7')
 #define	isvisible(c)							\
-	(((u_int)(c) <= UCHAR_MAX && isascii((u_char)(c)) &&		\
+	(((unsigned)(c) <= UCHAR_MAX && isascii((u_char)(c)) &&		\
 	(((c) != '*' && (c) != '?' && (c) != '[' && (c) != '#') ||	\
 		(flag & VIS_GLOB) == 0) && isgraph((u_char)(c))) ||	\
 	((flag & VIS_SP) == 0 && (c) == ' ') ||				\

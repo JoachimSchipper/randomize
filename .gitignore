@@ -3,6 +3,10 @@
 *.o
 *~
 .*.sw[p-z]
+cscope.in.out
+cscope.out
+cscope.po.out
 randomize
 randomize.cat1
+tags
 test/*.result

@@ -25,7 +25,8 @@ DEFINES=-DHAVE_ARC4RANDOM -DHAVE_SRANDOMDEV -DHAVE_SIGINFO -DHAVE_VIS \
 # lint.
 CFLAGS=-std=c99 -pedantic -W -Wall -Wno-sign-compare -Wno-unused-parameter -Wbad-function-cast -Wcast-align -Wchar-subscripts -Wfloat-equal -Wmissing-declarations -Wmissing-format-attribute -Wmissing-noreturn -Wmissing-prototypes -Wnested-externs -Wpointer-arith -Wshadow -Wstrict-prototypes -Wwrite-strings -Wundef -Werror -g -O2 -I/usr/local/include ${DEFINES}
 # -Wredundant-decls
-LDFLAGS=-L/usr/local/lib -lpcre
+LDFLAGS=-L/usr/local/lib
+LIBS=-lpcre
 LINT=lint -ceFHrx -DLINT -I/usr/local/include -L/usr/local/lib -lpcre ${DEFINES}
 OBJS=compat.o record.o randomize.o
 # For systems with groff but no mandoc, use
@@ -41,7 +42,7 @@ lint:
 	${LINT} ${OBJS:.o=.c}
 
 randomize: ${OBJS}
-	${CC} ${CFLAGS} ${LDFLAGS} -o randomize ${OBJS}
+	${CC} ${CFLAGS} ${LDFLAGS} -o randomize ${OBJS} ${LIBS}
 
 test: randomize test/1.in test/1.out test/2.in test/2.out test/3.in test/3.out test/4a.in test/4b.in test/4c.in test/4.out test/5.in test/5.out
 	# Simplest case, but file has no eol

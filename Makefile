@@ -12,7 +12,10 @@
 #
 # Define HAVE_VIS on platforms that have a vis(3) routine; otherwise, a
 # replacement is used.
-DEFINES=-DHAVE_ARC4RANDOM -DHAVE_SRANDOMDEV -DHAVE_SIGINFO -DHAVE_VIS
+#
+# Also, glibc hides many functions we need behind feature flags, so add these.
+DEFINES=-DHAVE_ARC4RANDOM -DHAVE_SRANDOMDEV -DHAVE_SIGINFO -DHAVE_VIS \
+	-D_BSD_SOURCE -D_GNU_SOURCE
 # Warns on pretty much everything, except two conditions (signed compare and
 # unused parameters) that are not necessarily errors. Lint catches those, and
 # we can suppress lints warnings.

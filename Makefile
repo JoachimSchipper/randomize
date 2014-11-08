@@ -10,12 +10,15 @@
 # Define HAVE_SIGINFO on platforms that support SIGINFO to enable printing data
 # on the console on receipt of SIGINFO.
 #
-# Define HAVE_VIS on platforms that have a vis(3) routine; otherwise, a
-# replacement is used.
+# Define HAVE_VIS on platforms that have a vis(3) routine, HAVE_STRLCAT on
+# platforms that have strlcat(3), and HAVE_STRTONUM on platforms that have
+# strtonum(3); in each case, a replacement is used if the function is not
+# available.
 #
-# Also, glibc hides many functions we need behind feature flags, so add these.
 DEFINES=-DHAVE_ARC4RANDOM -DHAVE_SRANDOMDEV -DHAVE_SIGINFO -DHAVE_VIS \
-	-D_BSD_SOURCE -D_GNU_SOURCE
+	-DHAVE_STRLCAT -DHAVE_STRTONUM
+# Tell glibc that we want access to more functions.
+DEFINES+=-D_BSD_SOURCE -D_GNU_SOURCE
 # Warns on pretty much everything, except two conditions (signed compare and
 # unused parameters) that are not necessarily errors. Lint catches those, and
 # we can suppress lints warnings.

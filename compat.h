@@ -73,3 +73,12 @@ char	*vis(char *, int, int, int);
  */
 uint32_t random_uniform(uint32_t max);
 #endif
+
+#ifndef HAVE_STRLCAT
+size_t   strlcat(char *, const char *, size_t);
+#endif
+
+#ifndef HAVE_STRTONUM
+long long
+         strtonum(const char *, long long, long long, const char **);
+#endif

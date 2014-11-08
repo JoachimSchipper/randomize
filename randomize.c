@@ -141,7 +141,7 @@ main(int argc, char **argv)
 	nrecords = UINT32_MAX;
 	process_options = 1;
 
-	while ((ch = getopt(argc, argv, "ae:n:o:")) != -1) {
+	while ((ch = getopt(argc, argv, "+ae:n:o:")) != -1) {
 		/*
 		 * Note: option processing is *partially* duplicated below,
 		 * search for "== '-'"

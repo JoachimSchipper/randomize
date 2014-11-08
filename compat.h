@@ -54,6 +54,7 @@
 #define	VIS_NL		0x10	/* also encode newline */
 #define	VIS_WHITE	(VIS_SP | VIS_TAB | VIS_NL)
 #define	VIS_SAFE	0x20	/* only encode "unsafe" characters */
+#define VIS_ALL		0x400	/* encode all characters */
 
 /*
  * other

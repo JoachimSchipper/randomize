@@ -46,7 +46,7 @@ randomize: ${OBJS}
 
 test: randomize test/1.in test/1.out test/2.in test/2.out test/3.in test/3.out test/4a.in test/4b.in test/4c.in test/4.out test/5.in test/5.out
 	# Simplest case, but file has no eol
-	./randomize test/1.in | sort > test/1.result &&\
+	./randomize test/1.in | env LC_ALL=C sort > test/1.result &&\
 		diff -u test/1.out test/1.result
 	# Error on no end of line
 	./randomize -e '\n' -o '&' test/1.in >/dev/null &&\
@@ -57,31 +57,36 @@ test: randomize test/1.in test/1.out test/2.in test/2.out test/3.in test/3.out t
 		echo 'This is not supposed to work' >&2 &&\
 		exit 1 || true
 	# Randomize arguments
-	./randomize -e 'ignored' -o '\n' -an 10 `cat test/1.in` | sort > test/1.result &&\
+	./randomize -e 'ignored' -o '\n' -an 10 `cat test/1.in` |\
+		env LC_ALL=C sort > test/1.result &&\
 		diff -u test/1.out test/1.result
 	# Reading from pipe (long file, partially in memory)
-	cat test/2.in | ./randomize | sort > test/2.result &&\
+	cat test/2.in | ./randomize | env LC_ALL=C sort > test/2.result &&\
 		diff -u test/2.out test/2.result
 	# Long lines
-	./randomize test/3.in | sort > test/3.result &&\
+	./randomize test/3.in | env LC_ALL=C sort > test/3.result &&\
 		diff -u test/3.out test/3.result
 	# Multiple files
-	cat test/4a.in | ./randomize - test/4b.in test/4c.in | sort > test/4.result &&\
+	cat test/4a.in | ./randomize - test/4b.in test/4c.in |\
+		env LC_ALL=C sort > test/4.result &&\
 		diff -u test/4.out test/4.result
 	# Regular expression and escape support
-	./randomize -e '(.*?)([ \t])' -o '\0\x0\xb\xB\2\1\n' test/5.in | sort > test/5.result &&\
+	./randomize -e '(.*?)([ \t])' -o '\0\x0\xb\xB\2\1\n' test/5.in |\
+		env LC_ALL=C sort > test/5.result &&\
 		diff -u test/5.out test/5.result
 	# Multiple files, changing -e/-o midway
-	cat test/4a.in | (cd test/ && ../randomize -o '&' - -e '(.*?)([ \t])' -o '\1 [5.in]\n' 5.in -e '\n' -o '\n' -- -e) | sort > test/6.result &&\
+	cat test/4a.in | (cd test/ && ../randomize -o '&' - -e '(.*?)([ \t])' -o '\1 [5.in]\n' 5.in -e '\n' -o '\n' -- -e) |\
+		env LC_ALL=C sort > test/6.result &&\
 		diff -u test/6.out test/6.result
 	# Requesting a few lines
 	./randomize -n 1 test/2.in >/dev/null || exit 1;
 	cat test/2.in | ./randomize -n 1 >/dev/null || exit 1;
 	./randomize -n 512 test/2.in >/dev/null || exit 1;
 	cat test/2.in | ./randomize -n 512 >/dev/null || exit 1;
-	./randomize -n 4096 test/2.in | sort > test/2.result &&\
+	./randomize -n 4096 test/2.in | env LC_ALL=C sort > test/2.result &&\
 		diff -u test/2.out test/2.result
-	cat test/2.in | ./randomize -n 4096 | sort > test/2.result &&\
+	cat test/2.in | ./randomize -n 4096 |\
+		env LC_ALL=C sort > test/2.result &&\
 		diff -u test/2.out test/2.result
 
 ${OBJS}: compat.h record.h

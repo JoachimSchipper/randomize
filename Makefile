@@ -1,4 +1,4 @@
-.PHONY: all clean lint test
+.PHONY: all clean test
 
 # Define HAVE_ARC4RANDOM on platforms that have arc4random_uniform() to obtain fast and
 # decent random numbers.
@@ -20,17 +20,14 @@ DEFINES=-DHAVE_ARC4RANDOM -DHAVE_SRANDOMDEV -DHAVE_SIGINFO -DHAVE_VIS \
 # Tell glibc that we want access to more functions.
 DEFINES+=-D_BSD_SOURCE -D_GNU_SOURCE
 # Warns on pretty much everything, except two conditions (signed compare and
-# unused parameters) that are not necessarily errors. Lint catches those, and
-# we can suppress lints warnings.
+# unused parameters) that are not necessarily errors.
 #
 # -Wpadded or the OpenBSD extension -Wlarger-than-X may occasionally be useful
-# as well. -Wcast-qual may give useful warnings, but those are duplicated by
-# lint.
-CFLAGS=-std=c99 -pedantic -W -Wall -Wno-sign-compare -Wno-unused-parameter -Wbad-function-cast -Wcast-align -Wchar-subscripts -Wfloat-equal -Wmissing-declarations -Wmissing-format-attribute -Wmissing-noreturn -Wmissing-prototypes -Wnested-externs -Wpointer-arith -Wshadow -Wstrict-prototypes -Wwrite-strings -Wundef -Werror -g -O2 -I/usr/local/include ${DEFINES}
+# as well.
+CFLAGS=-std=c99 -pedantic -W -Wall -Wno-sign-compare -Wno-unused-parameter -Wbad-function-cast -Wcast-align -Wcast-qual -Wchar-subscripts -Wfloat-equal -Wmissing-declarations -Wmissing-format-attribute -Wmissing-noreturn -Wmissing-prototypes -Wnested-externs -Wpointer-arith -Wshadow -Wstrict-prototypes -Wwrite-strings -Wundef -Werror -g -O2 -I/usr/local/include ${DEFINES}
 # -Wredundant-decls
 LDFLAGS=-L/usr/local/lib
 LIBS=-lpcre
-LINT=lint -ceFHrx -DLINT -I/usr/local/include -L/usr/local/lib -lpcre ${DEFINES}
 OBJS=compat.o record.o randomize.o
 # For systems with groff but no mandoc, use
 #MANDOC=groff -mandoc
@@ -40,9 +37,6 @@ all: randomize randomize.cat1
 
 clean:
 	rm -f randomize randomize.cat1 ${OBJS} test/{1,2,3,4,5}.result
-
-lint:
-	${LINT} ${OBJS:.o=.c}
 
 randomize: ${OBJS}
 	${CC} ${CFLAGS} ${LDFLAGS} -o randomize ${OBJS} ${LIBS}

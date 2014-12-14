@@ -1,4 +1,4 @@
-.PHONY: all clean test
+.PHONY: all clean cscope dev test
 
 # Define HAVE_ARC4RANDOM on platforms that have arc4random_uniform() to obtain fast and
 # decent random numbers.
@@ -28,7 +28,9 @@ CFLAGS=-std=c99 -pedantic -W -Wall -Wno-sign-compare -Wno-unused-parameter -Wbad
 # -Wredundant-decls
 LDFLAGS=-L/usr/local/lib
 LIBS=-lpcre
+HEADERS=compat.h record.h
 OBJS=compat.o record.o randomize.o
+SRCS=${OBJS:.o=.c} ${HEADERS}
 # For systems with groff but no mandoc, use
 #MANDOC=groff -mandoc
 MANDOC?=mandoc
@@ -36,7 +38,7 @@ MANDOC?=mandoc
 all: randomize randomize.cat1
 
 clean:
-	rm -f randomize randomize.cat1 ${OBJS} test/{1,2,3,4,5}.result
+	rm -f randomize randomize.cat1 ${OBJS} test/{1,2,3,4,5}.result tags cscope.out cscope.in.out cscope.po.out
 
 randomize: ${OBJS}
 	${CC} ${CFLAGS} ${LDFLAGS} -o randomize ${OBJS} ${LIBS}
@@ -86,7 +88,17 @@ test: randomize test/1.in test/1.out test/2.in test/2.out test/3.in test/3.out t
 		env LC_ALL=C sort > test/2.result &&\
 		diff -u test/2.out test/2.result
 
-${OBJS}: compat.h record.h
+${OBJS}: ${HEADERS}
 
 randomize.cat1: randomize.1
 	${MANDOC} -Tascii randomize.1 > randomize.cat1
+
+tags: ${SRCS}
+	ctags ${SRCS}
+
+cscope: cscope.out
+
+cscope.out cscope.in.out cscope.po.out: ${SRCS}
+	cscope -bq ${SRCS}
+
+dev: all tags cscope test
